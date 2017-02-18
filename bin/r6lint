@@ -1,0 +1,65 @@
+#!/usr/bin/env scheme-script
+;; -*- mode: scheme; coding: utf-8 -*- !#
+;; Copyright © 2017 Göran Weinholt <goran@weinholt.se>
+
+;; Permission is hereby granted, free of charge, to any person obtaining a
+;; copy of this software and associated documentation files (the "Software"),
+;; to deal in the Software without restriction, including without limitation
+;; the rights to use, copy, modify, merge, publish, distribute, sublicense,
+;; and/or sell copies of the Software, and to permit persons to whom the
+;; Software is furnished to do so, subject to the following conditions:
+
+;; The above copyright notice and this permission notice shall be included in
+;; all copies or substantial portions of the Software.
+
+;; THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+;; IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+;; FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+;; THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+;; LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+;; FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+;; DEALINGS IN THE SOFTWARE.
+#!r6rs
+
+(import (r6lint lib reader)
+        (r6lint lib expander)
+        (r6lint psyntax compat)
+        (r6lint psyntax library-manager)
+        (rnrs (6)))
+
+;; {path}:{line}:{column}:{C}:{msg_id}:{msg}
+
+(define (main script-name)
+  (guard
+      (exn
+       (else
+        (display script-name)
+        (display ":1:0:E:W001:")
+        (display (condition-message exn))
+        (display (simple-conditions exn))
+        (newline)
+        (exit 1)))
+    (parameterize ((library-path (cons "/home/weinholt/code"
+                                       ;; XXX: should be an environment variable,
+                                       ;; and probably include the script's dir
+                                       (library-path))))
+      ;; XXX: Must detect if the file is a library or something else.
+      (case (detect-scheme-file-type script-name)
+        ((r6rs-library)
+         (expand-dummy-script script-name))
+        ((r6rs-top-level-program)
+         (expand-script script-name))
+        (else
+         (display script-name)
+         (display ":1:0:W:E001:Unable to detect the file type\n"))))))
+
+(apply
+ (case-lambda
+   [(prog script-name)
+    (main script-name)]
+   [(prog . rest)
+    (error prog "Usage: r6lint filename.sps")])
+ (command-line))
+
+;; (display "r6lint:1:0:W:E001:This is fine\n")
+;; (display "r6lint:2:7:E:E001:This is fine\n")

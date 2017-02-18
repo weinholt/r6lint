@@ -1,0 +1,57 @@
+#!/usr/bin/env scheme-script
+;; -*- mode: scheme; coding: utf-8 -*- !#
+;; Copyright © 2017 Göran Weinholt <goran@weinholt.se>
+
+;; Permission is hereby granted, free of charge, to any person obtaining a
+;; copy of this software and associated documentation files (the "Software"),
+;; to deal in the Software without restriction, including without limitation
+;; the rights to use, copy, modify, merge, publish, distribute, sublicense,
+;; and/or sell copies of the Software, and to permit persons to whom the
+;; Software is furnished to do so, subject to the following conditions:
+
+;; The above copyright notice and this permission notice shall be included in
+;; all copies or substantial portions of the Software.
+
+;; THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+;; IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+;; FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+;; THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+;; LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+;; FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+;; DEALINGS IN THE SOFTWARE.
+#!r6rs
+
+(import (r6lint lib reader)
+        (r6lint tests check)
+        (rnrs (6)))
+
+;; Lexing
+
+(letrec ((get-all (lambda (input)
+                    (let ((p (open-string-input-port input)))
+                      (let lp ((lexeme* '()))
+                        (let ((lexeme (get-lexeme p)))
+                          (if (eof-object? lexeme)
+                              (reverse lexeme*)
+                              (lp (cons lexeme lexeme*)))))))))
+  (check (get-all "#!/usr/bin/env scheme-script\n#f") => '((shebang 0 . "/usr/bin/env scheme-script") #f))
+  (check (get-all " #!/usr/bin/env scheme-script\n#f") => '((shebang 1 . "/usr/bin/env scheme-script") #f))
+  (check (get-all " #f ") => '(#f))
+  (check (get-all "#!r6rs #f") => '((directive . r6rs) #f)))
+
+;; Reading
+
+(letrec ((stripped-read
+          (lambda (input)
+            (let ((reader (make-reader (open-string-input-port input))))
+              (guard (exn
+                      (else 'error))
+                (annotation-stripped (read-annotated reader)))))))
+  (check (stripped-read "#!/usr/bin/env scheme-script\n#f") => '#f)
+  (check (stripped-read " #!/usr/bin/env scheme-script\n#f") => 'error)
+  (check (stripped-read "#f") => #f))
+
+(check-report)
+(exit (if (check-passed? 7) 0 1))
+
+;; TODO: nested comments   #|##||#|#

@@ -1,38 +1,39 @@
 ;;; Copyright (c) 2006, 2007 Abdulaziz Ghuloum and Kent Dybvig
-;;; 
+;;; Copyright © 2017 Göran Weinholt <goran@weinholt.se>
+;;;
 ;;; Permission is hereby granted, free of charge, to any person obtaining a
 ;;; copy of this software and associated documentation files (the "Software"),
 ;;; to deal in the Software without restriction, including without limitation
 ;;; the rights to use, copy, modify, merge, publish, distribute, sublicense,
 ;;; and/or sell copies of the Software, and to permit persons to whom the
 ;;; Software is furnished to do so, subject to the following conditions:
-;;; 
+;;;
 ;;; The above copyright notice and this permission notice shall be included in
 ;;; all copies or substantial portions of the Software.
-;;; 
+;;;
 ;;; THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 ;;; IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 ;;; FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
 ;;; THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 ;;; LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 ;;; FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-;;; DEALINGS IN THE SOFTWARE. 
+;;; DEALINGS IN THE SOFTWARE.
 
-(library (psyntax internal)
+(library (r6lint psyntax internal)
   (export current-primitive-locations compile-core-expr-to-port expanded->core)
-  (import (rnrs) (psyntax compat))
-  
+  (import (rnrs) (r6lint psyntax compat))
+
   (define current-primitive-locations
-    (make-parameter 
+    (make-parameter
       (lambda (x) #f)
       (lambda (p)
         (assert (procedure? p))
         p)))
-  
-  (define (mutable? x) 
+
+  (define (mutable? x)
     (define (simple? x)
-      (or (null? x) 
-          (char? x) 
+      (or (null? x)
+          (char? x)
           (symbol? x)
           (boolean? x)
           (number? x)))
@@ -41,40 +42,40 @@
   (define (rewriter quote-hack?)
     (define (f x)
       (cond
-        ((pair? x) 
+        ((pair? x)
          (case (car x)
-           ((quote) 
+           ((quote)
             (cond
               ((and quote-hack? (mutable? (cadr x)))
                (let ((g (gensym)))
                  (set-symbol-value! g (cadr x))
                  g))
               (else x)))
-           ((case-lambda) 
+           ((case-lambda)
             (cons 'case-lambda
-              (map 
-                (lambda (x) 
+              (map
+                (lambda (x)
                   (cons (car x) (map f (cdr x))))
                 (cdr x))))
-           ((lambda) 
+           ((lambda)
             (cons* 'lambda (cadr x) (map f (cddr x))))
-           ((letrec) 
+           ((letrec)
             (let ((bindings (cadr x)) (body* (cddr x)))
               (let ((lhs* (map car bindings)) (rhs* (map cadr bindings)))
                 (cons* 'letrec
                        (map list lhs* (map f rhs*))
-                       (map f body*))))) 
-           ((letrec*) 
+                       (map f body*)))))
+           ((letrec*)
             (let ((bindings (cadr x)) (body* (cddr x)))
               (let ((lhs* (map car bindings)) (rhs* (map cadr bindings)))
                 (cons* 'letrec*
                        (map list lhs* (map f rhs*))
                        (map f body*)))))
-           ((begin) 
+           ((begin)
             (cons 'begin (map f (cdr x))))
-           ((set!) 
+           ((set!)
             (list 'set! (cadr x) (f (caddr x))))
-           ((primitive) 
+           ((primitive)
             (let ((op (cadr x)))
               (cond
                 (((current-primitive-locations) op) =>
@@ -82,13 +83,13 @@
                    loc))
                 (else op))))
            ((define) x)
-           (else 
-            (if (list? x) 
+           (else
+            (if (list? x)
                 (map f x)
                 (error 'rewrite "invalid form ~s ~s" x (list? x))))))
         (else x)))
     f)
-  
+
   (define need-quote-hack?
     (let ((x (cons 1 2)))
       (not (eq? (eval-core `',x) (eval-core `',x)))))
@@ -99,5 +100,3 @@
   (define (compile-core-expr-to-port x p)
     (pretty-print ((rewriter #f) x) p)
     (newline p)))
-
-

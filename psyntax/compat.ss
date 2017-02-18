@@ -1,24 +1,25 @@
 ;;; Copyright (c) 2006, 2007 Abdulaziz Ghuloum and Kent Dybvig
-;;; 
+;;; Copyright © 2017 Göran Weinholt <goran@weinholt.se>
+;;;
 ;;; Permission is hereby granted, free of charge, to any person obtaining a
 ;;; copy of this software and associated documentation files (the "Software"),
 ;;; to deal in the Software without restriction, including without limitation
 ;;; the rights to use, copy, modify, merge, publish, distribute, sublicense,
 ;;; and/or sell copies of the Software, and to permit persons to whom the
 ;;; Software is furnished to do so, subject to the following conditions:
-;;; 
+;;;
 ;;; The above copyright notice and this permission notice shall be included in
 ;;; all copies or substantial portions of the Software.
-;;; 
+;;;
 ;;; THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 ;;; IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 ;;; FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
 ;;; THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 ;;; LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 ;;; FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-;;; DEALINGS IN THE SOFTWARE. 
+;;; DEALINGS IN THE SOFTWARE.
 
-(library (psyntax compat)
+(library (r6lint psyntax compat)
   (export make-parameter parameterize define-record pretty-print
           gensym void eval-core symbol-value set-symbol-value!
           file-options-spec read-library-source-file
@@ -26,17 +27,20 @@
           read-annotated annotation-source
           library-version-mismatch-warning
           file-locator-resolution-error)
-  (import 
+  (import
+    (only (r6lint lib reader)
+          read-annotated annotation? annotation-expression
+          annotation-stripped annotation-source)
     (rnrs)
     (only (psyntax system $bootstrap)
-          void gensym eval-core set-symbol-value! symbol-value 
+          void gensym eval-core set-symbol-value! symbol-value
           pretty-print))
 
-  (define (annotation? x) #f)
-  (define (annotation-source x) #f)
-  (define (annotation-expression x) x)
-  (define (annotation-stripped x) x)
-  (define read-annotated read)
+  ;; (define (annotation? x) #f)
+  ;; (define (annotation-source x) #f)
+  ;; (define (annotation-expression x) x)
+  ;; (define (annotation-stripped x) x)
+  ;; (define read-annotated read)
 
   (define read-library-source-file
     (lambda (file-name)
@@ -52,7 +56,7 @@
            (() x)
            ((v) (set! x (fender v))))))))
 
-  (define-syntax parameterize 
+  (define-syntax parameterize
     (lambda (x)
       (syntax-case x ()
         ((_ () b b* ...) (syntax (let () b b* ...)))
@@ -61,18 +65,18 @@
                        ((rhs* ...) (generate-temporaries (syntax (olhs* ...)))))
            (syntax (let ((lhs* olhs*) ...
                    (rhs* orhs*) ...)
-               (let ((swap 
-                      (lambda () 
+               (let ((swap
+                      (lambda ()
                         (let ((t (lhs*)))
                           (lhs* rhs*)
                           (set! rhs* t))
                         ...)))
-                 (dynamic-wind 
+                 (dynamic-wind
                    swap
                    (lambda () b b* ...)
                    swap)))))))))
 
-    
+
   (define (library-version-mismatch-warning name depname filename)
     ;;; please override this in your production implementation
     (display "Warning: inconsistent dependencies: ")
@@ -80,31 +84,31 @@
     (display depname)
     (display filename))
 
-      
+
   (define (file-locator-resolution-error libname failed-list)
     ;;; please override this in your production implementation
     (error 'file-location "cannot find library" libname))
 
-  ;;; we represent records as vectors for portability but this is 
+  ;;; we represent records as vectors for portability but this is
   ;;; not nice.  If your system supports compile-time generative
-  ;;; records, replace the definition of define-record with your 
-  ;;; system supplied definition (which you should support in the 
+  ;;; records, replace the definition of define-record with your
+  ;;; system supplied definition (which you should support in the
   ;;; expander first of course).
-  ;;; if your system allows associating printers with records, 
-  ;;; a printer procedure is provided (so you can use it in the 
-  ;;; output of the macro).  The printers provided take two 
-  ;;; arguments, a record instance and an output port.  They 
-  ;;; output something like #<stx (foo bar)> or #<library (rnrs)> 
+  ;;; if your system allows associating printers with records,
+  ;;; a printer procedure is provided (so you can use it in the
+  ;;; output of the macro).  The printers provided take two
+  ;;; arguments, a record instance and an output port.  They
+  ;;; output something like #<stx (foo bar)> or #<library (rnrs)>
   ;;; to the port.
   ;;;
   ;;; The following should be good for full R6RS implementations.
   ;;;
   ;;;   (define-syntax define-record
   ;;;     (syntax-rules ()
-  ;;;       ((_ name (field* ...) printer) 
+  ;;;       ((_ name (field* ...) printer)
   ;;;        (define-record name (field* ...)))
   ;;;       ((_ name (field* ...))
-  ;;;        (define-record-type name 
+  ;;;        (define-record-type name
   ;;;           (sealed #t)     ; for better performance
   ;;;           (opaque #t)     ; for security
   ;;;           (nongenerative) ; for sanity
@@ -118,41 +122,41 @@
           ((= i j) '())
           (else (cons i (iota (+ i 1) j)))))
       (syntax-case stx ()
-        ((_ name (field* ...) printer) 
+        ((_ name (field* ...) printer)
          (syntax (define-record name (field* ...))))
         ((_ name (field* ...))
-         (with-syntax ((constructor 
+         (with-syntax ((constructor
                         (datum->syntax (syntax name)
                           (string->symbol
                             (string-append "make-"
-                              (symbol->string 
+                              (symbol->string
                                 (syntax->datum (syntax name)))))))
-                       (predicate 
+                       (predicate
                         (datum->syntax (syntax name)
                           (string->symbol
-                            (string-append 
-                              (symbol->string 
+                            (string-append
+                              (symbol->string
                                 (syntax->datum (syntax name)))
-                              "?")))) 
-                       (<rtd> 
+                              "?"))))
+                       (<rtd>
                         (datum->syntax (syntax name) (gensym)))
                        ((accessor ...)
-                        (map 
-                          (lambda (x) 
+                        (map
+                          (lambda (x)
                             (datum->syntax (syntax name)
-                              (string->symbol 
-                                (string-append 
+                              (string->symbol
+                                (string-append
                                   (symbol->string (syntax->datum
                                                     (syntax name)))
                                   "-"
                                   (symbol->string (syntax->datum x))))))
-                          (syntax (field* ...)))) 
+                          (syntax (field* ...))))
                        ((mutator ...)
-                        (map 
-                          (lambda (x) 
+                        (map
+                          (lambda (x)
                             (datum->syntax (syntax name)
-                              (string->symbol 
-                                (string-append "set-" 
+                              (string->symbol
+                                (string-append "set-"
                                   (symbol->string (syntax->datum
                                                     (syntax name)))
                                   "-"
@@ -163,35 +167,30 @@
                         (iota 1 (+ 1 (length (syntax (field* ...)))))))
            (syntax (begin
                (define constructor
-                 (lambda (field* ...) 
+                 (lambda (field* ...)
                    (vector '<rtd> field* ...)))
                (define predicate
-                 (lambda (x) 
-                   (and (vector? x) 
-                        (= (vector-length x) 
+                 (lambda (x)
+                   (and (vector? x)
+                        (= (vector-length x)
                            (+ 1 (length '(field* ...))))
                         (eq? (vector-ref x 0) '<rtd>))))
                (define accessor
                  (lambda (x)
-                   (if (predicate x) 
+                   (if (predicate x)
                        (vector-ref x idx)
                        (error 'accessor "~s is not of type ~s" x
                               'name))))
                ...
                (define mutator
                  (lambda (x v)
-                   (if (predicate x) 
+                   (if (predicate x)
                        (vector-set! x idx v)
                        (error 'mutator "~s is not of type ~s" x
                               'name))))
                ...)))))))
 
-  (define (file-options-spec x) 
+  (define (file-options-spec x)
     (error 'file-options-spec "not implemented"))
 
 )
-
-
-
-
-

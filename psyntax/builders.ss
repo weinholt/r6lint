@@ -1,31 +1,32 @@
 ;;; Copyright (c) 2006, 2007 Abdulaziz Ghuloum and Kent Dybvig
-;;; 
+;;; Copyright © 2017 Göran Weinholt <goran@weinholt.se>
+;;;
 ;;; Permission is hereby granted, free of charge, to any person obtaining a
 ;;; copy of this software and associated documentation files (the "Software"),
 ;;; to deal in the Software without restriction, including without limitation
 ;;; the rights to use, copy, modify, merge, publish, distribute, sublicense,
 ;;; and/or sell copies of the Software, and to permit persons to whom the
 ;;; Software is furnished to do so, subject to the following conditions:
-;;; 
+;;;
 ;;; The above copyright notice and this permission notice shall be included in
 ;;; all copies or substantial portions of the Software.
-;;; 
+;;;
 ;;; THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 ;;; IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 ;;; FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
 ;;; THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 ;;; LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 ;;; FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-;;; DEALINGS IN THE SOFTWARE. 
+;;; DEALINGS IN THE SOFTWARE.
 
-(library (psyntax builders)
+(library (r6lint psyntax builders)
   (export build-lexical-assignment build-global-reference
     build-application build-conditional build-lexical-reference
     build-global-assignment build-global-definition build-lambda
     build-case-lambda build-let build-primref build-foreign-call
     build-data build-sequence build-void build-letrec build-letrec*
     build-global-define build-library-letrec*)
-  (import (rnrs) (psyntax compat) (psyntax config))
+  (import (rnrs) (r6lint psyntax compat) (r6lint psyntax config))
 
   (define (build-global-define x)
     (if-wants-global-defines
@@ -55,7 +56,7 @@
     (syntax-rules ()
       ((_ ae var exp) (build-global-assignment ae var exp))))
   (define build-lambda
-    (lambda (ae vars exp) 
+    (lambda (ae vars exp)
       (if-wants-case-lambda
           `(case-lambda (,vars ,exp))
           `(lambda ,vars ,exp))))
@@ -65,28 +66,28 @@
         `(case-lambda . ,(map list vars* exp*)))
       (lambda (ae vars* exp*)
         (define (build-error ae)
-          (build-application ae 
-            (build-primref ae 'error) 
-            (list (build-data ae 'apply) 
+          (build-application ae
+            (build-primref ae 'error)
+            (list (build-data ae 'apply)
                   (build-data ae "invalid arg count"))))
-        (define (build-pred ae n vars) 
-          (let-values (((count pred) 
+        (define (build-pred ae n vars)
+          (let-values (((count pred)
                         (let f ((vars vars) (count 0))
                           (cond
                             ((pair? vars) (f (cdr vars) (+ count 1)))
                             ((null? vars) (values count '=))
                             (else (values count '>=))))))
-            (build-application ae (build-primref ae pred) 
-              (list (build-lexical-reference ae n) 
+            (build-application ae (build-primref ae pred)
+              (list (build-lexical-reference ae n)
                     (build-data ae count)))))
         (define (build-apply ae g vars exp)
-          (build-application ae (build-primref ae 'apply) 
-            (list (build-lambda ae vars exp) 
+          (build-application ae (build-primref ae 'apply)
+            (list (build-lambda ae vars exp)
                   (build-lexical-reference ae g))))
-        (define (expand-case-lambda ae vars exp*) 
+        (define (expand-case-lambda ae vars exp*)
           (let ((g (gensym)) (n (gensym)))
             `(lambda ,g
-               ,(build-let ae 
+               ,(build-let ae
                   (list n) (list (build-application ae
                                    (build-primref ae 'length)
                                    (list (build-lexical-reference ae g))))
@@ -97,7 +98,7 @@
                           (build-pred ae n (car vars*))
                           (build-apply ae g (car vars*) (car exp*))
                           (f (cdr vars*) (cdr exp*)))))))))
-        (if (= (length exp*) 1) 
+        (if (= (length exp*) 1)
             (build-lambda ae (car vars*) (car exp*))
             (expand-case-lambda ae vars* exp*)))))
   (define build-let
@@ -136,7 +137,7 @@
           (build-let ae vars (map (lambda (x) (build-data ae #f)) vars)
             (build-sequence ae
               (append
-                (map (lambda (lhs rhs) 
+                (map (lambda (lhs rhs)
                        (build-lexical-assignment ae lhs rhs))
                      vars val-exps)
                 (list body-exp)))))))))
@@ -145,7 +146,7 @@
       (if-wants-library-letrec*
         `(library-letrec* ,(map list vars locs val-exps) ,body-exp)
         (build-letrec* ae vars val-exps
-          (if top? 
+          (if top?
               body-exp
               (build-sequence ae
                 (cons body-exp
@@ -155,5 +156,3 @@
 
 
   )
-
-

@@ -1,46 +1,42 @@
+;;; -*- mode: scheme; coding: utf-8 -*-
 ;;; Copyright (c) 2006, 2007 Abdulaziz Ghuloum and Kent Dybvig
-;;; 
+;;; Copyright © 2017 Göran Weinholt <goran@weinholt.se>
+;;;
 ;;; Permission is hereby granted, free of charge, to any person obtaining a
 ;;; copy of this software and associated documentation files (the "Software"),
 ;;; to deal in the Software without restriction, including without limitation
 ;;; the rights to use, copy, modify, merge, publish, distribute, sublicense,
 ;;; and/or sell copies of the Software, and to permit persons to whom the
 ;;; Software is furnished to do so, subject to the following conditions:
-;;; 
+;;;
 ;;; The above copyright notice and this permission notice shall be included in
 ;;; all copies or substantial portions of the Software.
-;;; 
+;;;
 ;;; THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 ;;; IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 ;;; FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
 ;;; THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 ;;; LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 ;;; FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-;;; DEALINGS IN THE SOFTWARE. 
+;;; DEALINGS IN THE SOFTWARE.
 
-(import 
-  (rnrs base)
-  (rnrs control)
-  (rnrs programs)
-  (rnrs io simple)
-  (rnrs io ports)
-  (rnrs lists)
-  (rnrs files)
-  (psyntax internal)
-  (psyntax compat)
-  (psyntax library-manager)
-  (psyntax expander))
+#!r6rs
 
-
-(define scheme-library-files
-  '("psyntax/compat.ss"
-    "psyntax/internal.ss"
-    "psyntax/config.ss"
-    "psyntax/library-manager.ss"
-    "psyntax/builders.ss"
-    "psyntax/expander.ss"
-    "psyntax/main.ss"))
-
+(library (r6lint lib expander)
+  (export expand-dummy-script expand-script)
+  (import
+    (rnrs base)
+    (rnrs control)
+    (rnrs programs)
+    (rnrs io simple)
+    (rnrs io ports)
+    (rnrs lists)
+    (rnrs files)
+    (r6lint lib reader)
+    (r6lint psyntax internal)
+    (r6lint psyntax compat)
+    (r6lint psyntax library-manager)
+    (r6lint psyntax expander))
 
 (define psyntax-system-macros
   '((define              (define))
@@ -71,7 +67,7 @@
     (quasisyntax         (macro . quasisyntax))
     (with-syntax         (macro . with-syntax))
     (identifier-syntax   (macro . identifier-syntax))
-    (when                (macro . when))         
+    (when                (macro . when))
     (unless              (macro . unless))
     (case                (macro . case))
     (let-values          (macro . let-values))
@@ -102,9 +98,9 @@
     (buffer-mode           (macro . buffer-mode))
     (file-options          (macro . file-options))
     (error-handling-mode   (macro . error-handling-mode))
-    (fields                (macro . fields)) 
+    (fields                (macro . fields))
     (mutable               (macro . mutable))
-    (immutable             (macro . immutable)) 
+    (immutable             (macro . immutable))
     (parent                (macro . parent))
     (protocol              (macro . protocol))
     (sealed                (macro . sealed))
@@ -116,10 +112,10 @@
     (define-condition-type (macro . define-condition-type))
     ;;; for (record-type-descriptor &condition-type) and
     ;;; (record-constructor-descriptor &condition-type) to
-    ;;; expand properly, the implementation must export 
-    ;;; the identifiers &condition-type-rtd, which must 
-    ;;; be bound to the run-time value of the rtd, and 
-    ;;; &condition-type-rcd which must be bound to the 
+    ;;; expand properly, the implementation must export
+    ;;; the identifiers &condition-type-rtd, which must
+    ;;; be bound to the run-time value of the rtd, and
+    ;;; &condition-type-rcd which must be bound to the
     ;;; corresponding record-constructor-descriptor.
     (&condition                ($core-rtd . (&condition-rtd &condition-rcd)))
     (&message                  ($core-rtd . (&message-rtd &message-rcd)))
@@ -191,13 +187,13 @@
     ($boot       (psyntax system $bootstrap)           #f    #t)
     ))
 
-;;; required? flag means that said library is required for 
+;;; required? flag means that said library is required for
 ;;; building the system.  The only non-r6rs required libraries
 ;;; should be (psyntax system $bootstrap) and (psyntax system $all).
-;;; (psyntax system $bootstrap) should export, at a minimum, the 
+;;; (psyntax system $bootstrap) should export, at a minimum, the
 ;;; following procedures: gensym, symbol-value, set-symbol-value!,
 ;;; eval-core, and pretty-print.
-;;; (psyntax system $all) is fabricated by the system to include 
+;;; (psyntax system $all) is fabricated by the system to include
 ;;; every identifier in the system.
 
 
@@ -415,9 +411,9 @@
     (bitwise-rotate-bit-field                   r bw)
     ;;;
     (fixnum?                                    r fx)
-    (fixnum-width                               r fx) 
-    (least-fixnum                               r fx) 
-    (greatest-fixnum                            r fx) 
+    (fixnum-width                               r fx)
+    (least-fixnum                               r fx)
+    (greatest-fixnum                            r fx)
     (fx*                                        r fx)
     (fx*/carry                                  r fx)
     (fx+                                        r fx)
@@ -1083,25 +1079,64 @@
               ;;; not going to any library?
               (f (cdr ls))))))))))
 
-
-
 (define bootstrap-collection
   (let ((ls '()))
     (case-lambda
       (() ls)
-      ((x) 
-       (unless (memq x ls) 
+      ((x)
+       (unless (memq x ls)
          (set! ls (cons x ls)))))))
-
-(verify-map)
 
 (define (make-init-code)
   (values '() '() '() '()))
 
+(define (expand-top-level forms)
+  (parameterize ((current-library-collection bootstrap-collection))
+    (let-values ([(req* exp) (top-level-expander forms)])
+      (current-primitive-locations (lambda (x) x))
+      (let ([codes '()])
+        (define serialize
+          (let ([ls '()])
+            (lambda (lib)
+              (unless (memq lib ls)
+                (set! ls (cons lib ls))
+                (for-each serialize (library-invoke-dependencies lib))
+                (let ([p (cons (library-name lib)
+                               (library-invoke-code lib))])
+                  (set! codes (cons p codes)))))))
+        (for-each serialize req*)
+        (reverse (cons (cons '*main* exp) codes))))))
+
+(define (expand-script filename)
+  (let ([forms (expand-top-level (read-file filename))])
+    (let ((p (current-error-port)))
+      (for-each
+       (lambda (x)
+         (display ";;; " p)
+         (display (car x) p)
+         (newline p)
+         (newline p)
+         (pretty-print (cdr x) p)
+         (newline p))
+       forms))))
+
+(define (expand-dummy-script filename)
+  ;; This creates a script with a dummy import of the given library.
+  (let ((source (read-file filename)))
+    (unless (list? source)
+      (error 'expand-dummy-script "Not a library form"))
+    (let ((lib (map annotation-stripped source)))
+      (let ((forms (expand-top-level `((import ,(cadar lib))
+                                       
+                                       ))))
+        (display forms (current-error-port))
+        (newline (current-error-port))))))
+
+(verify-map)
 
 (let ((all-names (map car identifier->library-map))
       (all-labels (map (lambda (x) (gensym)) identifier->library-map))
-      (all-bindings (map (lambda (x) 
+      (all-bindings (map (lambda (x)
                            (cond
                              ((macro-identifier x) => cadr)
                              (else `(core-prim . ,x))))
@@ -1126,7 +1161,7 @@
                               (values
                                 (get-export-subset key export-subst)
                                 '()))))
-              (parameterize ((current-library-collection 
+              (parameterize ((current-library-collection
                               bootstrap-collection))
                 (install-library
                    id name version import-libs visit-libs invoke-libs
@@ -1142,70 +1177,19 @@
          (for-each set-symbol-value! g* v*)
          (let ((alist (map cons '(name* ...) g*)))
            (current-primitive-locations
-             (lambda (x) 
+             (lambda (x)
                (cond
                  ((assq x alist) => cdr)
                  (else (error #f "undefined prim ~s" x))))))))))
   (define-prims
     syntax-dispatch apply cons append map list syntax-error
     generate-temporaries = + datum->syntax string->symbol
-    string-append symbol->string syntax->datum gensym length 
+    string-append symbol->string syntax->datum gensym length
     open-string-output-port identifier? free-identifier=? exists
     values call-with-values for-all ellipsis-map assertion-violation
     assertion-error null? car cdr pair? bound-identifier=? vector
     eq? reverse))
 
-(define (read-file filename)
-  (with-input-from-file filename
-    (lambda ()
-      (let f ()
-        (let ([x (read)])
-          (if (eof-object? x) 
-              '()
-              (cons x (f))))))))
-
-(define (expand-top-level forms)
-  (parameterize ((current-library-collection bootstrap-collection))
-    (let-values ([(req* exp) (top-level-expander forms)])
-      (current-primitive-locations (lambda (x) x))
-      (let ([codes '()])
-        (define serialize
-          (let ([ls '()])
-            (lambda (lib)
-              (unless (memq lib ls)
-                (set! ls (cons lib ls))
-                (for-each serialize (library-invoke-dependencies lib))
-                (let ([p (cons (library-name lib)
-                               (library-invoke-code lib))])
-                  (set! codes (cons p codes)))))))
-        (for-each serialize req*)
-        (reverse (cons (cons '*main* exp) codes))))))
-
-(define (expand-script filename)
-  (define outfile (string-append filename ".expanded"))
-  (let ([forms (expand-top-level (read-file filename))])
-    (when (file-exists? outfile)
-      (delete-file outfile))
-    (let ((p (open-output-file outfile)))
-      (for-each
-        (lambda (x) 
-           (display ";;; " p)
-           (display (car x) p)
-           (newline p)
-           (newline p)
-           (pretty-print (cdr x) p)
-           (newline p))
-        forms)
-      (close-output-port p))))
-
-(apply
-  (case-lambda
-    [(prog script-name) (expand-script script-name)]
-    [(prog . rest) (apply error prog "incorrect usage:" `(,prog . ,rest))])
-  (command-line))
 
 
-(display "Happy Happy Joy Joy\n")
-(exit 0)
-
-;;; vim:syntax=scheme
+)
