@@ -37,68 +37,88 @@
           (rnrs conditions)
           (rnrs exceptions)
           (rnrs lists)
-          (only (rnrs io ports) lookahead-char get-char get-line
-                port-has-port-position? port-position eof-object?
-                current-input-port)
+          (prefix (only (rnrs io ports) lookahead-char get-char put-char eof-object?
+                        call-with-string-output-port)
+                  rnrs:)
 
-          (only (rnrs io simple) display newline ;debugging
-                call-with-input-file with-input-from-file)
+          (only (rnrs io simple) display newline)  ;debugging
           (rnrs records syntactic)
           (rnrs unicode))
 
+  (define eof-object? rnrs:eof-object?)
+
+  (define (lookahead-char reader)
+    (rnrs:lookahead-char (reader-port reader)))
+
+  (define (get-char reader)
+    (let ((c (rnrs:get-char (reader-port reader))))
+      (when (eqv? c #\linefeed)
+        (reader-line-set! reader (+ (reader-line reader) 1))
+        (reader-column-set! reader -1))
+      (reader-column-set! reader (+ (reader-column reader) 1))
+      c))
+
+  (define (get-line reader)
+    (rnrs:call-with-string-output-port
+      (lambda (out)
+        (do ((c (get-char reader) (get-char reader)))
+            ((eqv? c #\linefeed))
+          (rnrs:put-char out c)))))
+
   ;; Detects the type of Scheme source: r6rs-library, r6rs-top-level-program, empty or unknown.
   (define (detect-scheme-file-type port)
-    (let lp ()
-      (let ((lexeme (get-lexeme port)))
-        (cond ((eof-object? lexeme)
-               'empty)
-              ((and (pair? lexeme) (eq? (car lexeme) 'shebang))
-               'r6rs-top-level-program)
-              ((and (pair? lexeme) (eq? (car lexeme) 'directive))
-               (lp))
-              ((memq lexeme '(openp openb)) ;a pair
-               (let ((lexeme (get-lexeme port)))
-                 (cond ((and (pair? lexeme) (eq? (car lexeme) 'identifier))
-                        (case (cdr lexeme)
-                          ((import) 'r6rs-top-level-program)
-                          ((library) 'r6rs-library)
-                          (else 'unknown))))))
-              (else 'unknown)))))
+    (let ((reader (make-reader port "<unknown>")))
+      (let lp ()
+        (let ((lexeme (get-lexeme reader)))
+          (cond ((eof-object? lexeme)
+                 'empty)
+                ((and (pair? lexeme) (eq? (car lexeme) 'shebang))
+                 'r6rs-top-level-program)
+                ((and (pair? lexeme) (eq? (car lexeme) 'directive))
+                 (lp))
+                ((memq lexeme '(openp openb)) ;a pair
+                 (let ((lexeme (get-lexeme reader)))
+                   (cond ((and (pair? lexeme) (eq? (car lexeme) 'identifier))
+                          (case (cdr lexeme)
+                            ((import) 'r6rs-top-level-program)
+                            ((library) 'r6rs-library)
+                            (else 'unknown))))))
+                (else 'unknown))))))
 
   (define-record-type reader
-    (fields port filename)
+    (fields port filename
+            (mutable line) (mutable column)
+            (mutable saved-line) (mutable saved-column))
     (sealed #t) (opaque #f) (nongenerative)
     (protocol
      (lambda (p)
        (lambda (port filename)
-         (p port filename)))))
+         (p port filename 1 0 1 0)))))
+
+  (define (reader-mark reader)
+    (reader-saved-line-set! reader (reader-line reader))
+    (reader-saved-column-set! reader (reader-column reader)))
 
   ;; As wanted by psyntax
   (define-record-type annotation
     (fields expression source stripped)
     (sealed #t) (opaque #f) (nongenerative))
 
-  (define read-annotated
-    (case-lambda
-      (()
-       (read-annotated (current-input-port)))
-      ((reader)
-       (let ((p (if (reader? reader) (reader-port reader) reader))) ;XXX: Should not be allowed
-         (define (annotate port stripped datum)
-           (make-annotation datum (cons (if (reader? reader) (reader-filename reader) #f)
-                                        (cons 0 (port-position port)))
-                            stripped))
-         (define (annotate-not port stripped datum)
-           (make-annotation datum #f stripped))
-         (let-values (((d d*) (handle-lexeme p (get-lexeme p)
-                                             ;; TODO: should always annotate
-                                             (if (port-has-port-position? p)
-                                                 annotate
-                                                 annotate-not))))
-           d*)))))
+  (define (annotate reader stripped datum)
+    (assert (reader? reader))
+    (make-annotation datum
+                     `(,(reader-filename reader)
+                       ,(reader-saved-line reader) . ,(reader-saved-column reader))
+                     stripped))
 
-  (define (get-datum p)
-    (let-values (((d d*) (handle-lexeme p (get-lexeme p) (lambda x #f))))
+  (define (read-annotated reader)
+    (assert (reader? reader))
+    (let-values (((d d*) (handle-lexeme reader (get-lexeme reader))))
+      d*))
+
+  (define (get-datum reader)
+    (assert (reader? reader))
+    (let-values (((d d*) (handle-lexeme reader (get-lexeme reader))))
       d))
 
   (define (read-port p filename)
@@ -113,24 +133,28 @@
 
   (define lerror
     (case-lambda
-      ((port msg . irritants)
-       ;; TODO: add a &source-position condition.
+      ((reader msg . irritants)
        (raise
          (condition (make-lexical-violation)
                     (make-message-condition msg)
+                    ;; TODO: make-source-condition
                     (make-irritants-condition
-                     (cons port
-                           (if (port-has-port-position? port)
-                               (cons (port-position port) irritants)
-                               irritants)))
-                    #;
-                    (make-i/o-read-error))))))
+                     `(,(reader-filename reader)
+                       ,(reader-saved-line reader) . ,(reader-saved-column reader))))))))
 
   (define (get-char-skipping-whitespace p)
     (let ((c (get-char p)))
       (cond ((eof-object? c) c)
             ((char-whitespace? c)
              (get-char-skipping-whitespace p))
+            (else c))))
+
+  (define (skip-whitespace p)
+    (let ((c (lookahead-char p)))
+      (cond ((eof-object? c) c)
+            ((char-whitespace? c)
+             (get-char p)
+             (skip-whitespace p))
             (else c))))
 
   (define (char-delimiter? c)
@@ -256,7 +280,10 @@
                (lp (cons (get-char p) chars)))))))
 
   (define (get-lexeme p)
-    (let lp ((c (get-char-skipping-whitespace p)))
+    (assert (reader? p))
+    (skip-whitespace p)
+    (reader-mark p)
+    (let lp ((c (get-char p)))
       (cond
         ((eof-object? c) c)
         ((char=? c #\;)                 ;a comment like this one
@@ -306,8 +333,11 @@
                 (get-lexeme p)))
              ((#\!)                     ;#!r6rs etc
               (if (memv (lookahead-char p) '(#\/ #\space))
-                  (let ((position (- (port-position p) 2)))
-                    `(shebang ,position . ,(get-line p)))  ; XXX: get-line is cheating
+                  (let ((line (reader-line p))
+                        (column (- (reader-column p) 2))
+                        #;
+                        (position (- (port-position p) 2)))
+                    `(shebang ,line ,column . ,(get-line p)))  ; XXX: get-line is cheating
                   (let ((id (get-lexeme p)))
                     (cond ((and (pair? id) (eq? (car id) 'identifier))
                            (case (cdr id)
@@ -444,7 +474,7 @@
   ;; <u8> → 〈any <number> representing an exact
   ;;                    integer in {0, ..., 255}〉
 
-  (define (get-compound-datum p terminator type annotate)
+  (define (get-compound-datum p terminator type)
     (let lp ((data '()) (data* '()))
       (let ((x (get-lexeme p)))
         (cond ((eof-object? x)
@@ -467,14 +497,14 @@
               ((eq? x 'dot)
                (unless (eq? type 'list)
                  (lerror p "dot used in non-list datum"))
-               (let-values (((x x*) (handle-lexeme p (get-lexeme p) annotate)))
+               (let-values (((x x*) (handle-lexeme p (get-lexeme p))))
                  (let ((t (get-lexeme p)))
                    (unless (eq? t terminator)
                      (lerror p "multiple dots in list" terminator t)))
                  (let ((s (append (reverse data) x)))
                    (values s (annotate p s (append (reverse data*) x*))))))
               (else
-               (let-values (((d d*) (handle-lexeme p x annotate)))
+               (let-values (((d d*) (handle-lexeme p x)))
                  (case type
                    ((bytevector)
                     (unless (and (number? d) (exact? d) (<= 0 d 255))
@@ -483,16 +513,16 @@
                    (else
                     (lp (cons d data) (cons d* data*))))))))))
 
-  (define (handle-lexeme p x annotate)
+  (define (handle-lexeme p x)
     (case x
       ((openp)
-       (get-compound-datum p 'closep 'list annotate))
+       (get-compound-datum p 'closep 'list))
       ((openb)
-       (get-compound-datum p 'closeb 'list annotate))
+       (get-compound-datum p 'closeb 'list))
       ((vector)
-       (get-compound-datum p 'closep 'vector annotate))
+       (get-compound-datum p 'closep 'vector))
       ((bytevector)
-       (get-compound-datum p 'closep 'bytevector annotate))
+       (get-compound-datum p 'closep 'bytevector))
       (else
        (cond ((or (char? x) (string? x) (boolean? x)
                   (number? x) (bytevector? x))
@@ -505,15 +535,15 @@
               (let ((lex (get-lexeme p)))
                 (when (eof-object? lex)
                   (lerror p "Unexpected end of file after abbreviation"))
-                (let-values (((d d*) (handle-lexeme p lex annotate)))
+                (let-values (((d d*) (handle-lexeme p lex)))
                   (let ((s (list (cdr x) d)))
                     (values s (annotate p s (list (cdr x) d*)))))))
              ((and (pair? x) (eq? (car x) 'directive))
               ;; Ignore directives like #!r6rs at this level.
-              (handle-lexeme p (get-lexeme p) annotate))
-             ((and (pair? x) (eq? (car x) 'shebang) (zero? (cadr x)))
+              (handle-lexeme p (get-lexeme p)))
+             ((and (pair? x) (eq? (car x) 'shebang) (eqv? (cadr x) 1) (eqv? (caddr x) 0))
               ;; Ignore the shebang ("#!/" or "#! " at the start of files).
               ;; FIXME: should only work for programs.
-              (handle-lexeme p (get-lexeme p) annotate))
+              (handle-lexeme p (get-lexeme p)))
              (else
               (lerror p "unexpected lexeme" x)))))))

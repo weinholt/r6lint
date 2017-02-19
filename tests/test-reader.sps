@@ -27,14 +27,14 @@
 
 ;; Lexing
 (letrec ((get-all (lambda (input)
-                    (let ((p (open-string-input-port input)))
+                    (let ((reader (make-reader (open-string-input-port input) "<test>")))
                       (let lp ((lexeme* '()))
-                        (let ((lexeme (get-lexeme p)))
+                        (let ((lexeme (get-lexeme reader)))
                           (if (eof-object? lexeme)
                               (reverse lexeme*)
                               (lp (cons lexeme lexeme*)))))))))
-  (check (get-all "#!/usr/bin/env scheme-script\n#f") => '((shebang 0 . "/usr/bin/env scheme-script") #f))
-  (check (get-all " #!/usr/bin/env scheme-script\n#f") => '((shebang 1 . "/usr/bin/env scheme-script") #f))
+  (check (get-all "#!/usr/bin/env scheme-script\n#f") => '((shebang 1 0 . "/usr/bin/env scheme-script") #f))
+  (check (get-all " #!/usr/bin/env scheme-script\n#f") => '((shebang 1 1 . "/usr/bin/env scheme-script") #f))
   (check (get-all " #f ") => '(#f))
   (check (get-all "#!r6rs #f") => '((directive . r6rs) #f)))
 

@@ -29,6 +29,7 @@
           file-locator-resolution-error)
   (import
     (only (r6lint lib reader)
+          make-reader
           read-annotated annotation? annotation-expression
           annotation-stripped annotation-source)
     (rnrs)
@@ -57,9 +58,10 @@
            (gensym* pretty-name)))))
 
   (define (read-library-source-file file-name)
-    (with-input-from-file file-name
-      (lambda ()
-        (read-annotated (current-input-port)))))
+    (call-with-port (open-input-file file-name)
+      (lambda (p)
+        (let ((reader (make-reader p file-name)))
+          (read-annotated reader)))))
 
   (define (library-version-mismatch-warning name depname filename)
     ;;; please override this in your production implementation

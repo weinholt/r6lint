@@ -54,7 +54,7 @@
            (emit filename 1 0 'error 'unknown-filetype "Unable to detect the filetype"))))))
 
   ;; Translate the source-condition. The format of source-character is
-  ;; constructed the reader.
+  ;; constructed by read-annotated.
   (define (emit-with-source emit exn level id message)
     (cond ((source-condition? exn)
            (let ((filename (source-filename exn))
@@ -118,13 +118,13 @@
     (display ";;; End of condition.\n" p))
 
   (define (lint-r6rs-library filename port emit)
-    (let ((form (let ((reader (make-reader port filename)))
-                  (read-annotated reader))))
-      (expand-library (list form))
-      (let ((lexeme (get-lexeme port)))
-        (unless (eof-object? lexeme)
-          (emit filename 0 0 'convention 'library-trailing-data
-                "Trailing data after the library form")))))
+    (let ((reader (make-reader port filename)))
+      (let ((form (read-annotated reader)))
+        (expand-library (list form))
+        (let ((lexeme (get-lexeme reader)))
+          (unless (eof-object? lexeme)
+            (emit filename 0 0 'convention 'library-trailing-data
+                  "Trailing data after the library form"))))))
 
   (define (lint-r6rs-top-level-program filename port emit)
     (let* ((forms (read-port port filename))
@@ -136,11 +136,4 @@
                    "Top-level program missing the import form")
              (expand-top-level `((import (rnrs) ,@forms))))
             (else
-             (expand-top-level forms)))))
-
-  #;
-  (expand-all '( "/home/weinholt/code/r6lint/lib/reader.sls"))
-
-
-
-  )
+             (expand-top-level forms))))))

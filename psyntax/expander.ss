@@ -34,7 +34,8 @@
           ellipsis-map assertion-error
           environment environment? environment-symbols
           top-level-expander
-          source-condition? source-filename source-character)
+          make-source-condition source-condition?
+          source-filename source-character)
   (import
     (except (rnrs)
       identifier?
@@ -1530,6 +1531,7 @@
                   ((e e* ...) `(if ,e (begin . ,e*) ,(f (car cls*) (cdr cls*))))
                   (_ (stx-error stx "invalid last clause")))))))))))
 
+  #;
   (begin ; module (include-macro include-into-macro)
          ; no module to keep portable!
          ; dump everything in top-level, sure.
@@ -2599,7 +2601,7 @@
          (case x
            ((define-record-type)    define-record-type-macro)
            ((define-struct)         define-struct-macro)
-           ((include)               include-macro)
+           ;; ((include)               include-macro)
            ((cond)                  cond-macro)
            ((let)                   let-macro)
            ((do)                    do-macro)
@@ -2629,7 +2631,7 @@
            ((trace-letrec-syntax)   trace-letrec-syntax-macro)
            ((define-condition-type) define-condition-type-macro)
            ((parameterize)          parameterize-macro)
-           ((include-into)          include-into-macro)
+           ;; ((include-into)          include-into-macro)
            ((eol-style)
             (lambda (x)
               (symbol-macro x '(none lf cr crlf nel crnel ls))))

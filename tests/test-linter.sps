@@ -57,19 +57,19 @@
   (check (lint-it "#!r6rs\n(library (foo) (export) (import (rnrs)))") =>
          '())
 
-  (check (lint-it "#!r6rs\n\
-(library (foo)\n\
-  (export)\n\
-  (import (rnrs))\n\
+  (check (lint-it "#!r6rs
+(library (foo)
+  (export)
+  (import (rnrs))
   (display 123))\n") =>
   '())
 
-  (check (lint-it "#!r6rs\n\
-(library (foo)\n\
-  (export)\n\
-  (import (rnrs))\n\
+  (check (lint-it "#!r6rs
+(library (foo)
+  (export)
+  (import (rnrs))
   test)\n") =>
-         '(#("<test>" 0 51 error unbound-identifier)))
+         '(#("<test>" 5 2 error unbound-identifier)))
 
   )
 
