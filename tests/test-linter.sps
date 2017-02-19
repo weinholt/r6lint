@@ -23,47 +23,34 @@
 #!r6rs
 
 (import (r6lint lib linter)
-        (r6lint psyntax compat)
-        (r6lint psyntax library-manager)
+        (r6lint tests check)
         (rnrs (6)))
 
-;; The output format is nicked from pylint running under flycheck:
+(define (lint-it input)
+  (let ((errors '()))
+    (letrec ((emit
+              (lambda (filename line col level id message)
+                (write (vector line col level id message))
+                (newline)
+                (set! errors (cons (vector line col level id) errors)))))
+      (lint "filename" (open-string-input-port input) emit))
+    (reverse errors)))
 
-;; {path}:{line}:{column}:{C}:{msg_id}:{msg}
+;; Programs
+(letrec ()
+  (check (lint-it "#!/usr/bin/env scheme-script\n") =>
+         '(#(1 0 error top-level-import-missing)))
 
-(define (message-printer path line column level id message)
-  (display path)
-  (display #\:)
-  (display line)
-  (display #\:)
-  (display column)
-  (display #\:)
-  (display (case level
-             ((refactor) 'R)
-             ((convention) 'C)
-             ((warning) 'W)
-             ((error) 'E)
-             ((fatal) 'F)
-             (else level)))
-  (display #\:)
-  (display id)
-  (display #\:)
-  (display message)
-  (newline))
+  (check (lint-it "#!/usr/bin/env scheme-script\n#!r6rs\n(import (rnrs))") =>
+         '())
+  )
 
-(define (main script-name)
-  (parameterize ((library-path (cons "/home/weinholt/code"
-                                     ;; XXX: should be an environment variable,
-                                     ;; and probably include the script's dir
-                                     (library-path))))
-    (call-with-port (open-input-file script-name)
-      (lambda (p)
-        (lint script-name p message-printer)))))
+;; Libraries
+(letrec ()
+  (check (lint-it "#!r6rs\n(library (foo) (export) (import (rnrs)))") =>
+         '())
 
-(apply
- (case-lambda
-   [(prog script-name)
-    (main script-name)]
-   [(prog . rest)
-    (error prog "Usage: r6lint filename.sps")])
- (command-line))
+  )
+
+(check-report)
+(exit (if (check-passed? 1) 0 1))

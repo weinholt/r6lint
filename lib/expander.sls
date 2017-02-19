@@ -23,7 +23,7 @@
 #!r6rs
 
 (library (r6lint lib expander)
-  (export expand-dummy-script expand-script)
+  (export expand-top-level)
   (import
     (rnrs base)
     (rnrs control)
@@ -1106,31 +1106,6 @@
                   (set! codes (cons p codes)))))))
         (for-each serialize req*)
         (reverse (cons (cons '*main* exp) codes))))))
-
-(define (expand-script filename)
-  (let ([forms (expand-top-level (read-file filename))])
-    (let ((p (current-error-port)))
-      (for-each
-       (lambda (x)
-         (display ";;; " p)
-         (display (car x) p)
-         (newline p)
-         (newline p)
-         (pretty-print (cdr x) p)
-         (newline p))
-       forms))))
-
-(define (expand-dummy-script filename)
-  ;; This creates a script with a dummy import of the given library.
-  (let ((source (read-file filename)))
-    (unless (list? source)
-      (error 'expand-dummy-script "Not a library form"))
-    (let ((lib (map annotation-stripped source)))
-      (let ((forms (expand-top-level `((import ,(cadar lib))
-                                       
-                                       ))))
-        (display forms (current-error-port))
-        (newline (current-error-port))))))
 
 (verify-map)
 

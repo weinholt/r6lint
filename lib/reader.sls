@@ -27,7 +27,7 @@
   (export get-lexeme
           detect-scheme-file-type
           make-reader
-          read-file
+          read-port
 
           read-annotated
           annotation? annotation-expression annotation-stripped annotation-source)
@@ -99,15 +99,13 @@
     (let-values (((d d*) (handle-lexeme p (get-lexeme p) (lambda x #f))))
       d))
 
-  (define (read-file filename)
-    (call-with-input-file filename
-      (lambda (p)
-        (let ((reader (make-reader p)))
-          (let f ()
-            (let ((x (read-annotated reader)))
-              (if (eof-object? x)
-                  '()
-                  (cons x (f)))))))))
+  (define (read-port filename p)
+    (let ((reader (make-reader p)))
+      (let f ()
+        (let ((x (read-annotated reader)))
+          (if (eof-object? x)
+              '()
+              (cons x (f)))))))
 
 ;;; Lexeme reader
 
