@@ -23,7 +23,8 @@
 #!r6rs
 
 (library (r6lint lib expander)
-  (export expand-top-level)
+  (export expand-top-level expand-library
+          source-condition? source-filename source-character)
   (import
     (rnrs base)
     (rnrs control)
@@ -1087,6 +1088,14 @@
        (unless (memq x ls)
          (set! ls (cons x ls)))))))
 
+(define (copy-collection collection)
+  (let ((ls (collection)))
+    (case-lambda
+      (() ls)
+      ((x)
+       (unless (memq x ls)
+         (set! ls (cons x ls)))))))
+
 (define (make-init-code)
   (values '() '() '() '()))
 
@@ -1106,6 +1115,55 @@
                   (set! codes (cons p codes)))))))
         (for-each serialize req*)
         (reverse (cons (cons '*main* exp) codes))))))
+
+(define (load x proc)
+  (with-input-from-file x
+    (lambda ()
+      (let f ()
+        (let ((x (read)))
+          (unless (eof-object? x)
+            (proc x)
+            (f)))))))
+
+(define (expand-all library-form*)
+  ;;; remove all re-exported identifiers (those with labels in
+  ;;; subst but not binding in env).
+  (define (prune-subst subst env)
+    (cond
+      ((null? subst) '())
+      ((not (assq (cdar subst) env)) (prune-subst (cdr subst) env))
+      (else (cons (car subst) (prune-subst (cdr subst) env)))))
+  (let-values (((name* code* subst env) (make-init-code)))
+    (for-each
+      (lambda (x)
+        (let-values (((name code export-subst export-env)
+                      (boot-library-expand x)))
+          (set! name* (cons name name*))
+          (set! code* (cons code code*))
+          (set! subst (append export-subst subst))
+          (set! env (append export-env env))))
+      library-form*)
+    (let-values (((export-subst export-env export-locs)
+                  (make-system-data (prune-subst subst env) env)))
+      (values name* code* export-locs))))
+
+(define (expand-library library-form*)
+  (let-values (((name* core* locs)
+                (parameterize ((current-library-collection (copy-collection bootstrap-collection)))
+                  (expand-all library-form*))))
+    (current-primitive-locations
+     (lambda (x)
+       (cond
+         ((assq x locs) => cdr)
+         (else #f))))
+    (let ((p (current-error-port)))
+      (for-each
+       (lambda (name x)
+         (display "expand-library: " p)
+         (display name p) (newline)
+         (write x p)
+         (newline p))
+       name* core*))))
 
 (verify-map)
 

@@ -66,12 +66,12 @@
               (else 'unknown)))))
 
   (define-record-type reader
-    (fields port)
+    (fields port filename)
     (sealed #t) (opaque #f) (nongenerative)
     (protocol
      (lambda (p)
-       (lambda (port)
-         (p port)))))
+       (lambda (port filename)
+         (p port filename)))))
 
   ;; As wanted by psyntax
   (define-record-type annotation
@@ -83,9 +83,11 @@
       (()
        (read-annotated (current-input-port)))
       ((reader)
-       (let ((p (if (reader? reader) (reader-port reader) reader)))
+       (let ((p (if (reader? reader) (reader-port reader) reader))) ;XXX: Should not be allowed
          (define (annotate port stripped datum)
-           (make-annotation datum (port-position port) stripped))
+           (make-annotation datum (cons (if (reader? reader) (reader-filename reader) #f)
+                                        (cons 0 (port-position port)))
+                            stripped))
          (define (annotate-not port stripped datum)
            (make-annotation datum #f stripped))
          (let-values (((d d*) (handle-lexeme p (get-lexeme p)
@@ -99,8 +101,8 @@
     (let-values (((d d*) (handle-lexeme p (get-lexeme p) (lambda x #f))))
       d))
 
-  (define (read-port filename p)
-    (let ((reader (make-reader p)))
+  (define (read-port p filename)
+    (let ((reader (make-reader p filename)))
       (let f ()
         (let ((x (read-annotated reader)))
           (if (eof-object? x)

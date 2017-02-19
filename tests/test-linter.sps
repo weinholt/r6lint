@@ -32,17 +32,24 @@
               (lambda (filename line col level id message)
                 (write (vector line col level id message))
                 (newline)
-                (set! errors (cons (vector line col level id) errors)))))
-      (lint "filename" (open-string-input-port input) emit))
+                (set! errors (cons (vector filename line col level id) errors)))))
+      (lint "<test>" (open-string-input-port input) emit))
     (reverse errors)))
 
 ;; Programs
 (letrec ()
+  (check (lint-it "#!r6rs\n") =>
+         '(#("<test>" 1 0 error file-empty)))
+
+  (check (lint-it "(display \"hello world\")\n") =>
+         '(#("<test>" 1 0 error unknown-filetype)))
+
   (check (lint-it "#!/usr/bin/env scheme-script\n") =>
-         '(#(1 0 error top-level-import-missing)))
+         '(#("<test>" 1 0 error top-level-import-missing)))
 
   (check (lint-it "#!/usr/bin/env scheme-script\n#!r6rs\n(import (rnrs))") =>
          '())
+
   )
 
 ;; Libraries
@@ -50,7 +57,21 @@
   (check (lint-it "#!r6rs\n(library (foo) (export) (import (rnrs)))") =>
          '())
 
+  (check (lint-it "#!r6rs\n\
+(library (foo)\n\
+  (export)\n\
+  (import (rnrs))\n\
+  (display 123))\n") =>
+  '())
+
+  (check (lint-it "#!r6rs\n\
+(library (foo)\n\
+  (export)\n\
+  (import (rnrs))\n\
+  test)\n") =>
+         '(#("<test>" 0 51 error unbound-identifier)))
+
   )
 
 (check-report)
-(exit (if (check-passed? 1) 0 1))
+(exit (if (check-passed? 7) 0 1))

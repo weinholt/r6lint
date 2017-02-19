@@ -56,7 +56,7 @@
 ;; Reading
 (letrec ((stripped-read
           (lambda (input)
-            (let ((reader (make-reader (open-string-input-port input))))
+            (let ((reader (make-reader (open-string-input-port input) "<test>")))
               (guard (exn
                       (else 'error))
                 (annotation-stripped (read-annotated reader)))))))

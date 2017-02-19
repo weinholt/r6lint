@@ -33,7 +33,8 @@
           interaction-environment
           ellipsis-map assertion-error
           environment environment? environment-symbols
-          top-level-expander)
+          top-level-expander
+          source-condition? source-filename source-character)
   (import
     (except (rnrs)
       identifier?
@@ -3828,13 +3829,13 @@
               (assertion-violation 'bound-identifier=? "not an identifier" y))
           (assertion-violation 'bound-identifier=? "not an identifier" x))))
 
+  (define-condition-type &source-information &condition
+    mk-source-condition source-condition?
+    (file-name source-filename)
+    (character source-character))
   (define (make-source-condition x)
-    (define-condition-type &source-information &condition
-      make-source-condition source-condition?
-      (file-name source-filename)
-      (character source-character))
     (if (pair? x)
-        (make-source-condition (car x) (cdr x))
+        (mk-source-condition (car x) (cdr x))
         (condition)))
 
   (define (extract-position-condition x)
