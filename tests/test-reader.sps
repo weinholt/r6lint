@@ -26,7 +26,6 @@
         (rnrs (6)))
 
 ;; Lexing
-
 (letrec ((get-all (lambda (input)
                     (let ((p (open-string-input-port input)))
                       (let lp ((lexeme* '()))
@@ -39,8 +38,22 @@
   (check (get-all " #f ") => '(#f))
   (check (get-all "#!r6rs #f") => '((directive . r6rs) #f)))
 
-;; Reading
+;; Detect file type
+(letrec ((detect (lambda (input)
+                   (call-with-port (open-string-input-port input)
+                     detect-scheme-file-type))))
+  (check (detect "") => 'empty)
+  (check (detect "#!r6rs") => 'empty)
+  (check (detect "#!/usr/bin/env scheme-script\n#f") => 'r6rs-top-level-program)
+  (check (detect "#! /usr/bin/env scheme-script\n#f") => 'r6rs-top-level-program)
+  (check (detect "(import (rnrs))") => 'r6rs-top-level-program)
+  (check (detect "#!r6rs (import ") => 'r6rs-top-level-program)
+  (check (detect "#!r6rs (library ") => 'r6rs-library)
+  ;; Looks weird but it's allowed.
+  (check (detect "#!r6rs [library ") => 'r6rs-library)
+  (check (detect "#!r6rs [import ") => 'r6rs-top-level-program))
 
+;; Reading
 (letrec ((stripped-read
           (lambda (input)
             (let ((reader (make-reader (open-string-input-port input))))
@@ -52,6 +65,6 @@
   (check (stripped-read "#f") => #f))
 
 (check-report)
-(exit (if (check-passed? 7) 0 1))
+(exit (if (check-passed? 16) 0 1))
 
 ;; TODO: nested comments   #|##||#|#

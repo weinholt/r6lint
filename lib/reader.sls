@@ -46,16 +46,28 @@
           (rnrs records syntactic)
           (rnrs unicode))
 
-  (define (detect-scheme-file-type filename)
-    (if (member (substring filename
-                           (- (string-length filename) 3)
-                           (string-length filename))
-                '("sls" ".ss"))
-        'r6rs-library
-        'r6rs-top-level-program))
+  ;; Detects the type of Scheme source: r6rs-library, r6rs-top-level-program, empty or unknown.
+  (define (detect-scheme-file-type port)
+    (let lp ()
+      (let ((lexeme (get-lexeme port)))
+        (cond ((eof-object? lexeme)
+               'empty)
+              ((and (pair? lexeme) (eq? (car lexeme) 'shebang))
+               'r6rs-top-level-program)
+              ((and (pair? lexeme) (eq? (car lexeme) 'directive))
+               (lp))
+              ((memq lexeme '(openp openb)) ;a pair
+               (let ((lexeme (get-lexeme port)))
+                 (cond ((and (pair? lexeme) (eq? (car lexeme) 'identifier))
+                        (case (cdr lexeme)
+                          ((import) 'r6rs-top-level-program)
+                          ((library) 'r6rs-library)
+                          (else 'unknown))))))
+              (else 'unknown)))))
 
   (define-record-type reader
     (fields port)
+    (sealed #t) (opaque #f) (nongenerative)
     (protocol
      (lambda (p)
        (lambda (port)
