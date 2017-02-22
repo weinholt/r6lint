@@ -12,9 +12,9 @@ env:
 matrix:
   fast_finish: true
 
-# addons:
-#   apt:
-#     packages:
+addons:
+  apt:
+    packages:
 #       # For Vicare
 #       - libgmp-dev
 #       # Sagittarius
@@ -25,9 +25,9 @@ matrix:
 #       - libc6:i386
 #       # GNU Guile
 #       - libunistring-dev
-#       - gcc-4.8
-#     sources:
-#       - ubuntu-toolchain-r-test
+      - gcc-4.8
+    sources:
+      - ubuntu-toolchain-r-test
 
 language: c
 
