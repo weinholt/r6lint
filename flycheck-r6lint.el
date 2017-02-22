@@ -1,4 +1,4 @@
-;;; flycheck-r6lint.el --- Flycheck extensio for r6lint.  -*- lexical-binding: t -*-
+;;; flycheck-r6lint.el --- Flycheck extension for r6lint.  -*- lexical-binding: t -*-
 
 ;; Copyright (C) 2017 Göran Weinholt <goran@weinholt.se>
 ;;
@@ -29,7 +29,7 @@
 
 ;;; Commentary:
 
-;; Flycheck extension for the R6RS linter r6lint.
+;; Flycheck extension for the R6RS Scheme linter r6lint.
 
 ;;; Code:
 
@@ -45,8 +45,8 @@
   "An R6RS Scheme syntax and style checker.
 See `https://github.com/weinholt/r6lint/'."
   :command ("r6lint"
-            ;; (config-file "--rcfile" flycheck-r6lintrc)
-            source-inplace)
+            (config-file "--config" flycheck-r6lintrc)
+            "--" source-inplace)
   :error-filter
   (lambda (errors)
     (flycheck-sanitize-errors (flycheck-increment-error-columns errors)))

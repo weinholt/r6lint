@@ -51,19 +51,45 @@
   (display message)
   (newline))
 
-(define (main script-name)
-  (parameterize ((library-path (cons "/home/weinholt/code"
-                                     ;; XXX: should be an environment variable,
-                                     ;; and probably include the script's dir
-                                     (library-path))))
-    (call-with-port (open-input-file script-name)
-      (lambda (p)
-        (lint script-name p message-printer)))))
+(define (parse-args args)
+  (define (help . msg)
+    (let ((p (current-error-port)))
+      (when msg (display (car msg) p) (newline p) (newline p))
+      (display "r6lint - R6RS Scheme linter
 
-(apply
- (case-lambda
-   [(prog script-name)
-    (main script-name)]
-   [(prog . rest)
-    (error prog "Usage: r6lint filename.sps")])
- (command-line))
+Usage:
+  r6lint [-c|--config <filename>] [--] <filename>
+" p)
+      (exit 1)))
+  (let lp ((filename #f)
+           (config-file #f)
+           (args args))
+    (cond ((null? args)
+           (unless filename
+             (help "ERROR: No filename given."))
+           (values filename config-file))
+          ((member (car args) '("--config" "-c"))
+           (if (null? (cdr args)) (help "ERROR: --config needs an argument"))
+           (lp filename (cadr args) (cddr args)))
+          ((string=? (car args) "--")
+           (if (not (= (length args) 2)) (help "ERROR: following -- must be only a filename"))
+           (if filename (help "ERROR: you can't have it both ways, use -- or don't"))
+           (lp (cadr args) config-file (cddr args)))
+          (else
+           (if filename (help "ERROR: extra arguments on command line"))
+           (lp (car args) config-file (cdr args))))))
+
+(define (main filename config-file)
+  (let ((config (if (and config-file (file-exists? config-file))
+                    (with-input-from-file config-file read)
+                    '())))
+    ;; XXX: Should allow the path of the script/library to be used
+    (parameterize ((library-path (cond ((assq 'library-path config) => cdr)
+                                       (else (library-path)))))
+      (call-with-port (open-input-file filename)
+        (lambda (p)
+          (lint filename p message-printer))))))
+
+(call-with-values (lambda () (parse-args (cdr (command-line)))) main)
+
+(flush-output-port (current-output-port))
