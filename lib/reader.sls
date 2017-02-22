@@ -30,7 +30,9 @@
           read-port
 
           read-annotated
-          annotation? annotation-expression annotation-stripped annotation-source)
+          annotation? annotation-expression annotation-stripped annotation-source
+          annotation-source->condition source-condition? source-filename
+          source-line source-column)
   (import (rnrs base)
           (rnrs bytevectors)
           (rnrs control)
@@ -104,11 +106,23 @@
     (fields expression source stripped)
     (sealed #t) (opaque #f) (nongenerative))
 
+  (define-condition-type &source-information &condition
+    make-source-condition source-condition?
+    (file-name source-filename)
+    (line source-line)
+    (column source-column))
+
+  (define (annotation-source->condition x)
+    (if (vector? x)
+        (apply make-source-condition (vector->list x))
+        (condition)))
+
   (define (annotate reader stripped datum)
     (assert (reader? reader))
     (make-annotation datum
-                     `(,(reader-filename reader)
-                       ,(reader-saved-line reader) . ,(reader-saved-column reader))
+                     (vector (reader-filename reader)
+                             (reader-saved-line reader)
+                             (reader-saved-column reader))
                      stripped))
 
   (define (read-annotated reader)
@@ -135,12 +149,13 @@
     (case-lambda
       ((reader msg . irritants)
        (raise
-         (condition (make-lexical-violation)
-                    (make-message-condition msg)
-                    ;; TODO: make-source-condition
-                    (make-irritants-condition
-                     `(,(reader-filename reader)
-                       ,(reader-saved-line reader) . ,(reader-saved-column reader))))))))
+         (condition
+          (make-lexical-violation)
+          (make-message-condition msg)
+          (make-source-condition (reader-filename reader)
+                                 (reader-saved-line reader)
+                                 (reader-saved-column reader))
+          (make-irritants-condition irritants))))))
 
   (define (get-char-skipping-whitespace p)
     (let ((c (get-char p)))
@@ -334,10 +349,8 @@
              ((#\!)                     ;#!r6rs etc
               (if (memv (lookahead-char p) '(#\/ #\space))
                   (let ((line (reader-line p))
-                        (column (- (reader-column p) 2))
-                        #;
-                        (position (- (port-position p) 2)))
-                    `(shebang ,line ,column . ,(get-line p)))  ; XXX: get-line is cheating
+                        (column (- (reader-column p) 2)))
+                    `(shebang ,line ,column . ,(get-line p)))
                   (let ((id (get-lexeme p)))
                     (cond ((and (pair? id) (eq? (car id) 'identifier))
                            (case (cdr id)
@@ -503,6 +516,9 @@
                      (lerror p "multiple dots in list" terminator t)))
                  (let ((s (append (reverse data) x)))
                    (values s (annotate p s (append (reverse data*) x*))))))
+              ((and (pair? x) (eq? (car x) 'directive))
+               ;; Ignore directives like #!r6rs at this level.
+               (lp data data*))
               (else
                (let-values (((d d*) (handle-lexeme p x)))
                  (case type
@@ -546,4 +562,4 @@
               ;; FIXME: should only work for programs.
               (handle-lexeme p (get-lexeme p)))
              (else
-              (lerror p "unexpected lexeme" x)))))))
+              (lerror p "Unexpected lexeme" x)))))))

@@ -24,14 +24,15 @@
           gensym void eval-core symbol-value set-symbol-value!
           file-options-spec read-library-source-file
           annotation? annotation-expression annotation-stripped
-          read-annotated annotation-source
+          read-annotated annotation-source annotation-source->condition
           library-version-mismatch-warning
           file-locator-resolution-error)
   (import
     (only (r6lint lib reader)
           make-reader
           read-annotated annotation? annotation-expression
-          annotation-stripped annotation-source)
+          annotation-stripped annotation-source
+          annotation-source->condition)
     (rnrs)
     ;; (for (only (scheme) record-writer type-descriptor) expand)
     (rename (only (scheme)

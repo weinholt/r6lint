@@ -30,8 +30,8 @@
   (let ((errors '()))
     (letrec ((emit
               (lambda (filename line col level id message)
-                (write (vector line col level id message))
-                (newline)
+                ;; (write (vector line col level id message))
+                ;; (newline)
                 (set! errors (cons (vector filename line col level id) errors)))))
       (lint "<test>" (open-string-input-port input) emit))
     (reverse errors)))
@@ -49,6 +49,9 @@
 
   (check (lint-it "#!/usr/bin/env scheme-script\n#!r6rs\n(import (rnrs))") =>
          '())
+
+  (check (lint-it " #!/usr/bin/env scheme-script\n") =>
+         '(#("<test>" 1 1 error lexical-violation)))
 
   )
 
@@ -74,4 +77,4 @@
   )
 
 (check-report)
-(exit (if (check-passed? 7) 0 1))
+(exit (if (check-passed? 8) 0 1))

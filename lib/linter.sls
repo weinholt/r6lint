@@ -58,11 +58,11 @@
   (define (emit-with-source emit exn level id message)
     (cond ((source-condition? exn)
            (let ((filename (source-filename exn))
-                 (line (car (source-character exn)))
-                 (column (cdr (source-character exn))))
+                 (line (source-line exn))
+                 (column (source-column exn)))
              (emit filename line column level id message)))
           (else
-           (emit "<unknown>" 1 0 level id message))))
+           (emit "<no-source>" 1 0 level id message))))
 
   (define (maybe-translate-condition emit exn)
     (cond ((and (who-condition? exn)
@@ -71,6 +71,11 @@
            (emit-with-source emit exn 'error 'unbound-identifier
                              (string-append "Unbound identifier: "
                                             (symbol->string (condition-who exn)))))
+          ((and (lexical-violation? exn)
+                (message-condition? exn))
+           (emit-with-source emit exn 'error 'lexical-violation
+                             (string-append "Lexical violation: "
+                                            (condition-message exn))))
           (else #f)))
 
   (define (print-condition exn p)

@@ -62,9 +62,12 @@
                 (annotation-stripped (read-annotated reader)))))))
   (check (stripped-read "#!/usr/bin/env scheme-script\n#f") => '#f)
   (check (stripped-read " #!/usr/bin/env scheme-script\n#f") => 'error)
-  (check (stripped-read "#f") => #f))
+  (check (stripped-read "#f") => #f)
+  (check (stripped-read "()") => '())
+  (check (stripped-read "#!r6rs ()") => '())
+  (check (stripped-read "(#!r6rs)") => '()))
 
 (check-report)
-(exit (if (check-passed? 16) 0 1))
+(exit (if (check-passed? 19) 0 1))
 
 ;; TODO: nested comments   #|##||#|#

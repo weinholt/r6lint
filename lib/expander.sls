@@ -23,8 +23,7 @@
 #!r6rs
 
 (library (r6lint lib expander)
-  (export expand-top-level expand-library
-          source-condition? source-filename source-character)
+  (export expand-top-level expand-library)
   (import
     (rnrs base)
     (rnrs control)
@@ -1156,6 +1155,7 @@
        (cond
          ((assq x locs) => cdr)
          (else #f))))
+    #;
     (let ((p (current-error-port)))
       (for-each
        (lambda (name x)
@@ -1163,7 +1163,8 @@
          (display name p) (newline)
          (write x p)
          (newline p))
-       name* core*))))
+       name* core*))
+    (values name* core*)))
 
 (verify-map)
 
@@ -1215,13 +1216,14 @@
                  ((assq x alist) => cdr)
                  (else (error #f "undefined prim ~s" x))))))))))
   (define-prims
+      ;; XXX: Surely this isn't needed
     syntax-dispatch apply cons append map list syntax-error
     generate-temporaries = + datum->syntax string->symbol
     string-append symbol->string syntax->datum gensym length
     open-string-output-port identifier? free-identifier=? exists
     values call-with-values for-all ellipsis-map assertion-violation
     assertion-error null? car cdr pair? bound-identifier=? vector
-    eq? reverse))
+    eq? reverse memq syntax-violation for-each not))
 
 
 

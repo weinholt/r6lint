@@ -24,13 +24,14 @@
           gensym void eval-core symbol-value set-symbol-value!
           file-options-spec read-library-source-file
           annotation? annotation-expression annotation-stripped
-          read-annotated annotation-source
+          read-annotated annotation-source annotation-source->condition
           library-version-mismatch-warning
           file-locator-resolution-error)
   (import
     (only (r6lint lib reader)
           read-annotated annotation? annotation-expression
-          annotation-stripped annotation-source)
+          annotation-stripped annotation-source
+          annotation-source->condition)
     (rnrs)
     (only (psyntax system $bootstrap)
           void gensym eval-core set-symbol-value! symbol-value
