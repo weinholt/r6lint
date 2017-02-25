@@ -1116,15 +1116,6 @@
         (for-each serialize req*)
         (reverse (cons (cons '*main* exp) codes))))))
 
-(define (load x proc)
-  (with-input-from-file x
-    (lambda ()
-      (let f ()
-        (let ((x (read)))
-          (unless (eof-object? x)
-            (proc x)
-            (f)))))))
-
 (define (expand-all library-form*)
   ;;; remove all re-exported identifiers (those with labels in
   ;;; subst but not binding in env).

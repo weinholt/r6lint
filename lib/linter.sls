@@ -37,6 +37,8 @@
     (guard (exn
             ((maybe-translate-condition emit exn))
             (else
+             (unless *DEBUG*
+               (print-condition exn (current-error-port)))
              (emit filename 1 0 'fatal 'internal-error
                    "Internal error while linting the file")
              (for-each (lambda (condition)
@@ -85,7 +87,7 @@
                  (column (source-column exn)))
              (emit filename line column level id message)))
           (else
-           (emit "<no-source>" 1 0 level id message))))
+           (emit #f 1 0 level id message))))
 
   (define (->string datum)
     (call-with-string-output-port
@@ -107,7 +109,7 @@
             (string=? (condition-message exn) "unbound identifier"))
        (emit-with-source emit exn 'error 'unbound-identifier
                          (string-append "Unbound identifier: "
-                                        (symbol->string (condition-who exn)))))
+                                        (->string (condition-who exn)))))
 
       ((and (lexical-violation? exn) (message-condition? exn))
        (cond
@@ -135,7 +137,8 @@
 
       ((source-condition? exn)
        ;; Fallthrough: an unknown condition with a source-condition.
-       (print-condition exn (current-error-port))
+       (unless *DEBUG*
+         (print-condition exn (current-error-port)))
        (emit-with-source emit exn 'error 'unknown-error
                          (if (message-condition? exn)
                              (string-append "Unknown error: "

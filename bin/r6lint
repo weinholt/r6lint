@@ -31,26 +31,6 @@
 
 ;; {path}:{line}:{column}:{C}:{msg_id}:{msg}
 
-(define (message-printer path line column level id message)
-  (display path)
-  (display #\:)
-  (display line)
-  (display #\:)
-  (display column)
-  (display #\:)
-  (display (case level
-             ((refactor) 'R)
-             ((convention) 'C)
-             ((warning) 'W)
-             ((error) 'E)
-             ((fatal) 'F)
-             (else level)))
-  (display #\:)
-  (display id)
-  (display #\:)
-  (display message)
-  (newline))
-
 (define (parse-args args)
   (define (help . msg)
     (let ((p (current-error-port)))
@@ -80,6 +60,26 @@ Usage:
            (lp (car args) config-file (cdr args))))))
 
 (define (main filename config-file)
+  (define (message-printer path line column level id message)
+    (display (or path filename))
+    (display #\:)
+    (display line)
+    (display #\:)
+    (display column)
+    (display #\:)
+    (display (case level
+               ((refactor) 'R)
+               ((convention) 'C)
+               ((warning) 'W)
+               ((error) 'E)
+               ((fatal) 'F)
+               (else level)))
+    (display #\:)
+    (display id)
+    (display #\:)
+    (display message)
+    (newline))
+
   (let ((config (if (and config-file (file-exists? config-file))
                     (with-input-from-file config-file read)
                     '())))
