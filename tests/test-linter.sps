@@ -27,7 +27,14 @@
         (rnrs (6)))
 
 (define (lint-it input)
-  (let ((errors '()))
+  (let ((input (if (string? input)
+                   input
+                   (call-with-string-output-port
+                     (lambda (p)
+                       (display "#!r6rs\n" p)
+                       (write input p)
+                       (newline p)))))
+        (errors '()))
     (letrec ((emit
               (lambda (filename line col level id message)
                 ;; (write (vector line col level id message))
@@ -36,7 +43,7 @@
       (lint "<test>" (open-string-input-port input) emit))
     (reverse errors)))
 
-;; Programs
+;;; Programs
 (letrec ()
   (check (lint-it "#!r6rs\n") =>
          '(#("<test>" 1 0 error file-empty)))
@@ -53,28 +60,78 @@
   (check (lint-it " #!/usr/bin/env scheme-script\n") =>
          '(#("<test>" 1 1 error lexical-violation)))
 
+  (check (lint-it "#!/usr/bin/env scheme-script\n#!r6rs\n(display \"Hello world\")") =>
+         '(#("<test>" 1 0 error top-level-import-missing)))
+
+  #;
+  (check (lint-it "(import (nonexistent-library))") =>
+         '(#("<test>" 1 8 error library-not-found)))
+
   )
 
-;; Libraries
+;;; Libraries
 (letrec ()
-  (check (lint-it "#!r6rs\n(library (foo) (export) (import (rnrs)))") =>
-         '())
+  (check (lint-it '(library (foo)
+                     (export)
+                     (import)))
+         => '())
+  (check (lint-it '(library (foo)
+                     (export)
+                     (import (rnrs))))
+         => '())
+  (check (lint-it '(library (foo)
+                     (export foo)
+                     (import (rnrs))
+                     (define foo 1)))
+         => '())
+
 
   (check (lint-it "#!r6rs
 (library (foo)
   (export)
   (import (rnrs))
-  (display 123))\n") =>
-  '())
+  (display 123))\n")
+         => '())
 
   (check (lint-it "#!r6rs
 (library (foo)
   (export)
   (import (rnrs))
-  test)\n") =>
-         '(#("<test>" 5 2 error unbound-identifier)))
+  test)\n")
+         => '(#("<test>" 5 2 error unbound-identifier)))
+
+  (check (lint-it "#!r6rs
+(library (foo)
+  (export unbound-export)
+  (import (rnrs)))\n")
+         =>
+         '(#("<test>" 3 10 error unbound-export)))
+
+  (check (lint-it "#!r6rs
+(library (foo)
+  (export)
+  (import (rnrs)))
+()")
+         =>
+         '(#("<test>" 5 0 convention library-trailing-data)))
 
   )
+
+;;; General syntax violations
+
+(letrec ()
+  (check (lint-it "
+(library (foo)
+  (export)
+  (import (rnrs))
+  (define-syntax foo
+    (lambda (x)
+      (syntax-case x ()
+        ((_ n) #'(+ n 1)))))
+  (foo))")
+         ;; FIXME: Should be column 3
+         => '(#("<test>" 9 6 error invalid-syntax))))
+
 
 (check-report)
-(exit (if (check-passed? 8) 0 1))
+(exit (if (check-passed? 14) 0 1))

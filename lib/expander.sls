@@ -1099,8 +1099,9 @@
   (values '() '() '() '()))
 
 (define (expand-top-level forms)
-  (parameterize ((current-library-collection bootstrap-collection))
+  (parameterize ((current-library-collection (copy-collection bootstrap-collection)))
     (let-values ([(req* exp) (top-level-expander forms)])
+      #;
       (current-primitive-locations (lambda (x) x))
       (let ([codes '()])
         (define serialize
@@ -1150,6 +1151,7 @@
   (let-values (((name* core* locs)
                 (parameterize ((current-library-collection (copy-collection bootstrap-collection)))
                   (expand-all library-form*))))
+    #;
     (current-primitive-locations
      (lambda (x)
        (cond
@@ -1157,6 +1159,9 @@
          (else #f))))
     #;
     (let ((p (current-error-port)))
+      (display "locs: " p)
+      (write locs p)
+      (newline p)
       (for-each
        (lambda (name x)
          (display "expand-library: " p)

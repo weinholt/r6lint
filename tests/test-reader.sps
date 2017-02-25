@@ -44,14 +44,14 @@
                      detect-scheme-file-type))))
   (check (detect "") => 'empty)
   (check (detect "#!r6rs") => 'empty)
-  (check (detect "#!/usr/bin/env scheme-script\n#f") => 'r6rs-top-level-program)
-  (check (detect "#! /usr/bin/env scheme-script\n#f") => 'r6rs-top-level-program)
-  (check (detect "(import (rnrs))") => 'r6rs-top-level-program)
-  (check (detect "#!r6rs (import ") => 'r6rs-top-level-program)
+  (check (detect "#!/usr/bin/env scheme-script\n#f") => 'r6rs-program)
+  (check (detect "#! /usr/bin/env scheme-script\n#f") => 'r6rs-program)
+  (check (detect "(import (rnrs))") => 'r6rs-program)
+  (check (detect "#!r6rs (import ") => 'r6rs-program)
   (check (detect "#!r6rs (library ") => 'r6rs-library)
   ;; Looks weird but it's allowed.
   (check (detect "#!r6rs [library ") => 'r6rs-library)
-  (check (detect "#!r6rs [import ") => 'r6rs-top-level-program))
+  (check (detect "#!r6rs [import ") => 'r6rs-program))
 
 ;; Reading
 (letrec ((stripped-read
@@ -71,3 +71,4 @@
 (exit (if (check-passed? 19) 0 1))
 
 ;; TODO: nested comments   #|##||#|#
+;; TODO: (check (stripped-read "#!\tr6rs ()") => ?)
