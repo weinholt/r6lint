@@ -34,20 +34,43 @@
           annotation-stripped annotation-source
           annotation-source->condition)
     (rnrs)
-    ;; (for (only (scheme) record-writer type-descriptor) expand)
-    (rename (only (scheme)
-                  define-record
-                  eval
-                  gensym
-                  top-level-value set-top-level-value!
+    (prefix (rnrs eval) rnrs:)
+    ;; (only (chezscheme) record-writer type-descriptor)
+    (rename (only (chezscheme) define-record
+                  gensym getprop putprop
                   make-parameter parameterize
-                  pretty-print
-                  void)
+                  pretty-print void)
             (define-record define-record*)
-            (gensym gensym*)
-            (eval eval-core)
-            (top-level-value symbol-value)
-            (set-top-level-value! set-symbol-value!)))
+            (gensym gensym*)))
+
+  ;; This is the environment which will be available to eval-core,
+  ;; which is used to run code during expansion.
+  (define env (rnrs:environment
+               '(except (rnrs)
+                        identifier? generate-temporaries free-identifier=?
+                        bound-identifier=? datum->syntax syntax-violation
+                        syntax->datum make-variable-transformer
+                        ;; Not safe -- if you need to access files
+                        ;; from your macros, please figure something
+                        ;; out. Maybe make filtering versions of these
+                        ;; procedures.
+                        open-output-file with-output-to-file
+                        call-with-output-file open-file-input/output-port
+                        open-file-output-port file-exists?)
+               '(only (r6lint psyntax expander)
+                      identifier? generate-temporaries free-identifier=?
+                      bound-identifier=? datum->syntax syntax-violation
+                      syntax->datum make-variable-transformer
+                      syntax-dispatch syntax-error ellipsis-map)
+               '(rnrs r5rs)
+               ;; Not safe and it's not very common to call eval from macros.
+               ;; '(rnrs eval)
+               '(rnrs mutable-pairs)
+               '(rnrs mutable-strings)
+               '(only (r6lint psyntax compat) gensym)))
+
+  (define (eval-core expr)
+    (rnrs:eval expr env))
 
   (define gensym
     (case-lambda
@@ -57,6 +80,12 @@
        (if (symbol? pretty-name)
            (gensym* (symbol->string pretty-name))
            (gensym* pretty-name)))))
+
+  (define (symbol-value s)
+    (getprop s 'value))
+
+  (define (set-symbol-value! s v)
+    (putprop s 'value v))
 
   (define (read-library-source-file file-name)
     (call-with-port (open-input-file file-name)

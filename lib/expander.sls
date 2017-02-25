@@ -1196,31 +1196,4 @@
                 (install-library
                    id name version import-libs visit-libs invoke-libs
                    subst env values values '#f '#f visible? '#f)))))))
-    (for-each build-library library-legend)))
-
-(let ()
-  (define-syntax define-prims
-    (syntax-rules ()
-      ((_ name* ...)
-       (let ((g* (map (lambda (x) (gensym)) '(name* ...)))
-             (v* (list name* ...)))
-         (for-each set-symbol-value! g* v*)
-         (let ((alist (map cons '(name* ...) g*)))
-           (current-primitive-locations
-             (lambda (x)
-               (cond
-                 ((assq x alist) => cdr)
-                 (else (error #f "undefined prim ~s" x))))))))))
-  (define-prims
-      ;; XXX: Surely this isn't needed
-    syntax-dispatch apply cons append map list syntax-error
-    generate-temporaries = + datum->syntax string->symbol
-    string-append symbol->string syntax->datum gensym length
-    open-string-output-port identifier? free-identifier=? exists
-    values call-with-values for-all ellipsis-map assertion-violation
-    assertion-error null? car cdr pair? bound-identifier=? vector
-    eq? reverse memq syntax-violation for-each not))
-
-
-
-)
+    (for-each build-library library-legend))))
