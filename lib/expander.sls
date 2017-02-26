@@ -38,6 +38,11 @@
     (r6lint psyntax library-manager)
     (r6lint psyntax expander))
 
+(define (for-each-in-order p x*)
+  (unless (null? x*)
+    (p (car x*))
+    (for-each-in-order p (cdr x*))))
+
 (define psyntax-system-macros
   '((define              (define))
     (define-syntax       (define-syntax))
@@ -126,8 +131,8 @@
     (&assertion                ($core-rtd . (&assertion-rtd &assertion-rcd)))
     (&irritants                ($core-rtd . (&irritants-rtd &irritants-rcd)))
     (&who                      ($core-rtd . (&who-rtd &who-rcd)))
-    (&non                      ($core-rtd . (&non-continuable-rtd &non-continuable-rcd)))
-    (&implementation           ($core-rtd . (&implementation-restriction-rtd &implementation-restriction-rcd)))
+    (&non-continuable          ($core-rtd . (&non-continuable-rtd &non-continuable-rcd)))
+    (&implementation-restriction ($core-rtd . (&implementation-restriction-rtd &implementation-restriction-rcd)))
     (&lexical                  ($core-rtd . (&lexical-rtd &lexical-rcd)))
     (&syntax                   ($core-rtd . (&syntax-rtd &syntax-rcd)))
     (&undefined                ($core-rtd . (&undefined-rtd &undefined-rcd)))
@@ -137,7 +142,7 @@
     (&i/o-invalid-position     ($core-rtd . (&i/o-invalid-position-rtd &i/o-invalid-position-rcd)))
     (&i/o-filename             ($core-rtd . (&i/o-filename-rtd &i/o-filename-rcd)))
     (&i/o-file-protection      ($core-rtd . (&i/o-file-protection-rtd &i/o-file-protection-rcd)))
-    (&i/o-file-is-read-only    ($core-rtd . (&i/o-file-is-read-only-rtd &i/o-fie-is-read-only-rcd)))
+    (&i/o-file-is-read-only    ($core-rtd . (&i/o-file-is-read-only-rtd &i/o-file-is-read-only-rcd)))
     (&i/o-file-already-exists  ($core-rtd . (&i/o-file-already-exists-rtd &i/o-file-already-exists-rcd)))
     (&i/o-file-does-not-exist  ($core-rtd . (&i/o-file-does-not-exist-rtd &i/o-file-does-not-exist-rcd)))
     (&i/o-port                 ($core-rtd . (&i/o-port-rtd &i/o-port-rcd)))
@@ -152,11 +157,11 @@
 
 (define library-legend
   ;; abbr.       name                             visible? required?
-  '((interaction (ikarus interaction)                  #t    #f)
+  '(;;(interaction (ikarus interaction)                  #t    #f)
     (ne          (psyntax null-environment-5)          #t    #f)
     (se          (psyntax scheme-report-environment-5) #t    #f)
-    (cm          (psyntax modules)                     #t    #f)
-    (parameters  (chez parameters)                     #t    #f)
+    ;; (cm          (psyntax modules)                     #t    #f)
+    ;; (parameters  (chez parameters)                     #t    #f)
     (r           (rnrs)                                #t    #t)
     (r5          (rnrs r5rs)                           #t    #t)
     (ct          (rnrs control)                        #t    #t)
@@ -337,7 +342,7 @@
     (nan?                                       r ba)
     (negative?                                  r ba se)
     (not                                        r ba se)
-    (null?                                      r ba)
+    (null?                                      r ba se)
     (number->string                             r ba se)
     (number?                                    r ba se)
     (numerator                                  r ba se)
@@ -387,10 +392,10 @@
     (vector-set!                                r ba se)
     (vector?                                    r ba se)
     (zero?                                      r ba se)
-    (...                                        r ba sc)
-    (=>                                         r ba ex)
-    (_                                          r ba sc)
-    (else                                       r ba ex)
+    (...                                        ne r ba sc se)
+    (=>                                         ne r ba ex se)
+    (_                                          ne r ba sc)
+    (else                                       ne r ba ex se)
     ;;;
     (bitwise-arithmetic-shift                   r bw)
     (bitwise-arithmetic-shift-left              r bw)
@@ -518,9 +523,11 @@
     (bytevector-ieee-double-native-ref          r bv)
     (bytevector-ieee-double-native-set!         r bv)
     (bytevector-ieee-double-ref                 r bv)
+    (bytevector-ieee-double-set!                r bv)
     (bytevector-ieee-single-native-ref          r bv)
     (bytevector-ieee-single-native-set!         r bv)
     (bytevector-ieee-single-ref                 r bv)
+    (bytevector-ieee-single-set!                r bv)
     (bytevector-length                          r bv)
     (bytevector-s16-native-ref                  r bv)
     (bytevector-s16-native-set!                 r bv)
@@ -608,7 +615,6 @@
     (serious-condition?                         r co)
     (simple-conditions                          r co)
     (&syntax                                    r co)
-    (syntax-violation                           r co sc)
     (syntax-violation-form                      r co)
     (syntax-violation-subform                   r co)
     (syntax-violation?                          r co)
@@ -802,8 +808,8 @@
     (current-input-port                         r ip is se)
     (current-output-port                        r ip is se)
     (current-error-port                         r ip is)
-    (eof-object                                 r ip is se)
-    (eof-object?                                r ip is)
+    (eof-object                                 r ip is)
+    (eof-object?                                r ip is se)
     (close-input-port                           r is se)
     (close-output-port                          r is se)
     (display                                    r is se)
@@ -881,6 +887,7 @@
     (record-predicate                           r rp)
     (record-type-descriptor?                    r rp)
     ;;;
+    (syntax-violation                           r sc)
     (bound-identifier=?                         r sc)
     (datum->syntax                              r sc)
     (syntax                                     r sc)
@@ -935,7 +942,7 @@
     (set-symbol-value!        $boot)
     (eval-core                $boot)
     (pretty-print             $boot)
-    (module                   cm)
+    ;; (module                   cm)
     (syntax-dispatch ) ; only goes to $all
     (syntax-error    ) ; only goes to $all
     (assertion-error                             )
@@ -1021,14 +1028,14 @@
   (let ((export-subst    (make-collection))
         (export-env      (make-collection))
         (export-primlocs (make-collection)))
-    (for-each
+    (for-each-in-order
       (lambda (x)
         (let ((name (car x)) (binding (cadr x)))
           (let ((label (gensym)))
             (export-subst (cons name label))
             (export-env   (cons label binding)))))
       psyntax-system-macros)
-    (for-each
+    (for-each-in-order
       (lambda (x)
         (cond
           ((macro-identifier x) (values))
@@ -1109,11 +1116,11 @@
             (lambda (lib)
               (unless (memq lib ls)
                 (set! ls (cons lib ls))
-                (for-each serialize (library-invoke-dependencies lib))
+                (for-each-in-order serialize (library-invoke-dependencies lib))
                 (let ([p (cons (library-name lib)
                                (library-invoke-code lib))])
                   (set! codes (cons p codes)))))))
-        (for-each serialize req*)
+        (for-each-in-order serialize req*)
         (reverse (cons (cons '*main* exp) codes))))))
 
 (define (expand-all library-form*)
@@ -1125,7 +1132,7 @@
       ((not (assq (cdar subst) env)) (prune-subst (cdr subst) env))
       (else (cons (car subst) (prune-subst (cdr subst) env)))))
   (let-values (((name* code* subst env) (make-init-code)))
-    (for-each
+    (for-each-in-order
       (lambda (x)
         (let-values (((name code export-subst export-env)
                       (boot-library-expand x)))
@@ -1196,4 +1203,4 @@
                 (install-library
                    id name version import-libs visit-libs invoke-libs
                    subst env values values '#f '#f visible? '#f)))))))
-    (for-each build-library library-legend))))
+    (for-each-in-order build-library library-legend))))

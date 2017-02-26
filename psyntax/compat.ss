@@ -26,7 +26,8 @@
           annotation? annotation-expression annotation-stripped
           read-annotated annotation-source annotation-source->condition
           library-version-mismatch-warning
-          file-locator-resolution-error)
+          file-locator-resolution-error
+          *GLOBALS*)
   (import
     (only (r6lint lib reader)
           read-annotated annotation? annotation-expression
@@ -36,6 +37,14 @@
     (only (psyntax system $bootstrap)
           void gensym eval-core set-symbol-value! symbol-value
           pretty-print))
+
+  (define (map-in-order f x*)
+    (if (null? x*)
+        '()
+        (cons (f (car x*))
+              (map-in-order f (cdr x*)))))
+
+  (define *GLOBALS* (make-eq-hashtable))
 
   ;; (define (annotation? x) #f)
   ;; (define (annotation-source x) #f)

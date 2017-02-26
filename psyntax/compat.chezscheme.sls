@@ -26,7 +26,8 @@
           annotation? annotation-expression annotation-stripped
           read-annotated annotation-source annotation-source->condition
           library-version-mismatch-warning
-          file-locator-resolution-error)
+          file-locator-resolution-error
+          *GLOBALS*)
   (import
     (only (r6lint lib reader)
           make-reader
@@ -37,11 +38,12 @@
     (prefix (rnrs eval) rnrs:)
     ;; (only (chezscheme) record-writer type-descriptor)
     (rename (only (chezscheme) define-record
-                  gensym getprop putprop
-                  make-parameter parameterize
+                  gensym make-parameter parameterize
                   pretty-print void)
             (define-record define-record*)
             (gensym gensym*)))
+
+  (define *GLOBALS* (make-eq-hashtable))
 
   ;; This is the environment which will be available to eval-core,
   ;; which is used to run code during expansion.
@@ -67,7 +69,7 @@
                ;; '(rnrs eval)
                '(rnrs mutable-pairs)
                '(rnrs mutable-strings)
-               '(only (r6lint psyntax compat) gensym)))
+               '(only (r6lint psyntax compat) gensym void *GLOBALS*)))
 
   (define (eval-core expr)
     (rnrs:eval expr env))
@@ -82,10 +84,10 @@
            (gensym* pretty-name)))))
 
   (define (symbol-value s)
-    (getprop s 'value))
+    (hashtable-ref *GLOBALS* s (void)))
 
   (define (set-symbol-value! s v)
-    (putprop s 'value v))
+    (hashtable-set! *GLOBALS* s v))
 
   (define (read-library-source-file file-name)
     (call-with-port (open-input-file file-name)

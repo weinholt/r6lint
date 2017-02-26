@@ -1,4 +1,5 @@
 ;;; Copyright (c) 2006, 2007 Abdulaziz Ghuloum and Kent Dybvig
+;;; Copyright © 2017 Göran Weinholt <goran@weinholt.se>
 ;;;
 ;;; Permission is hereby granted, free of charge, to any person obtaining a
 ;;; copy of this software and associated documentation files (the "Software"),
@@ -23,6 +24,7 @@
           if-wants-case-lambda
           if-wants-letrec* if-wants-global-defines
           if-wants-library-letrec*
+          if-use-r6rs-eval
           base-of-interaction-library)
   (import (rnrs))
 
@@ -69,5 +71,13 @@
   ;;; (letrec* ((lhs* rhs*) ...) body) into
   ;;; (let ((lhs* #f) ...) (set! lhs* rhs*) ... body)
 
-  (define-option if-wants-library-letrec* #t)
+  (define-option if-wants-library-letrec* #f)
+
+  (define-option if-use-r6rs-eval         #t)
+  ;;; R6RS Schemes without special compat support for a
+  ;;; mutable top-level environment should enable this option.
+  ;;; Global variables in core forms will be stored in the
+  ;;; hashtable *GLOBALS*. This is not meant to be used when
+  ;;; the expander is integrated in an implementation, but is
+  ;;; useful for running it standalone.
 )

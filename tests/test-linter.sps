@@ -23,6 +23,8 @@
 #!r6rs
 
 (import (r6lint lib linter)
+        (r6lint psyntax compat)
+        (r6lint psyntax library-manager)
         (r6lint tests check)
         (rnrs (6)))
 
@@ -84,7 +86,21 @@
                      (import (rnrs))
                      (define foo 1)))
          => '())
-
+  (parameterize ((library-path '("..")))
+    ;; Verify that the expander can use code from loaded libraries.
+    (check (lint-it '(library (foo)
+                       (export foo)
+                       (import (rnrs) (r6lint tests check))
+                       (define-syntax foo
+                         (lambda (x)
+                           (syntax-case x ()
+                             ((_)
+                              (let lp ((n 0))
+                                (if (check-passed? n)
+                                    n
+                                    (lp (+ n 1))))))))
+                       (foo)))
+           => '()))
 
   (check (lint-it "#!r6rs
 (library (foo)
@@ -134,4 +150,4 @@
 
 
 (check-report)
-(exit (if (check-passed? 14) 0 1))
+(exit (if (check-passed? 15) 0 1))

@@ -19,3 +19,4 @@ EOF
 bin/r6lint --config r6lintrc-test bin/r6lint
 bin/r6lint -c r6lintrc-test tests/test-reader.sps
 bin/r6lint -c r6lintrc-test tests/test-linter.sps
+echo All tests passed

@@ -48,10 +48,16 @@
       ((_ ae var exp) `(set! ,var ,exp))))
   (define-syntax build-global-reference
     (syntax-rules ()
-      ((_ ae var) var)))
+      ((_ ae var)
+       (if-use-r6rs-eval
+        `(hashtable-ref *GLOBALS* ',var ,(build-void))
+        var))))
   (define-syntax build-global-assignment
     (syntax-rules ()
-      ((_ ae var exp) `(set! ,var ,exp))))
+      ((_ ae var exp)
+       (if-use-r6rs-eval
+        `(hashtable-set! *GLOBALS* ',var ,exp)
+        `(set! ,var ,exp)))))
   (define-syntax build-global-definition
     (syntax-rules ()
       ((_ ae var exp) (build-global-assignment ae var exp))))
