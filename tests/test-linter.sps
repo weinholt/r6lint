@@ -101,6 +101,29 @@
                                     (lp (+ n 1))))))))
                        (foo)))
            => '()))
+  ;; Verify that the expander can expand file-options.
+  (check (lint-it '(library (foo)
+                     (export)
+                     (import (rnrs))
+                     (display (file-options no-fail))))
+         => '())
+  ;; Verify that the expander can use file-options during expansion.
+  (check (lint-it '(library (foo)
+                     (export)
+                     (import (rnrs))
+                     (define-syntax foo
+                       (lambda (x)
+                         (syntax-case x ()
+                           ((_)
+                            (begin
+                              (when (file-exists? "/dev/null")
+                                (call-with-port
+                                    (open-file-input-port "/dev/null"
+                                                          (file-options no-fail))
+                                  (lambda (p) #f)))
+                              #f)))))
+                     (foo)))
+         => '())
 
   (check (lint-it "#!r6rs
 (library (foo)
@@ -150,4 +173,4 @@
 
 
 (check-report)
-(exit (if (check-passed? 15) 0 1))
+(exit (if (check-passed? 17) 0 1))

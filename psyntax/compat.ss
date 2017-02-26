@@ -22,7 +22,7 @@
 (library (r6lint psyntax compat)
   (export make-parameter parameterize define-record pretty-print
           gensym void eval-core symbol-value set-symbol-value!
-          file-options-spec read-library-source-file
+          make-file-options read-library-source-file
           annotation? annotation-expression annotation-stripped
           read-annotated annotation-source annotation-source->condition
           library-version-mismatch-warning
@@ -200,7 +200,5 @@
                               'name))))
                ...)))))))
 
-  (define (file-options-spec x)
-    (error 'file-options-spec "not implemented"))
-
-)
+  (define file-options-set (make-enumeration '(no-create no-fail no-truncate)))
+  (define make-file-options (enum-set-constructor file-options-set)))

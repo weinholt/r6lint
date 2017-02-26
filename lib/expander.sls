@@ -946,6 +946,8 @@
     (syntax-dispatch ) ; only goes to $all
     (syntax-error    ) ; only goes to $all
     (assertion-error                             )
+    (make-file-options)
+    (ellipsis-map) ;for psyntax
 
     (&condition-rtd)
     (&condition-rcd)

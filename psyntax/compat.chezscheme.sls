@@ -22,7 +22,7 @@
 (library (r6lint psyntax compat)
   (export make-parameter parameterize define-record pretty-print
           gensym void eval-core symbol-value set-symbol-value!
-          file-options-spec read-library-source-file
+          make-file-options read-library-source-file
           annotation? annotation-expression annotation-stripped
           read-annotated annotation-source annotation-source->condition
           library-version-mismatch-warning
@@ -58,7 +58,7 @@
                         ;; procedures.
                         open-output-file with-output-to-file
                         call-with-output-file open-file-input/output-port
-                        open-file-output-port file-exists?)
+                        open-file-output-port delete-file)
                '(only (r6lint psyntax expander)
                       identifier? generate-temporaries free-identifier=?
                       bound-identifier=? datum->syntax syntax-violation
@@ -69,7 +69,8 @@
                ;; '(rnrs eval)
                '(rnrs mutable-pairs)
                '(rnrs mutable-strings)
-               '(only (r6lint psyntax compat) gensym void *GLOBALS*)))
+               '(only (r6lint psyntax compat) make-file-options
+                      gensym void *GLOBALS*)))
 
   (define (eval-core expr)
     (rnrs:eval expr env))
@@ -119,5 +120,5 @@
       [(_ name (field* ...))
        (define-record* name (field* ...))]))
 
-  (define (file-options-spec x)
-    (error 'file-options-spec "not implemented")))
+  (define file-options-set (make-enumeration '(no-create no-fail no-truncate)))
+  (define make-file-options (enum-set-constructor file-options-set)))
