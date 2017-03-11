@@ -65,10 +65,15 @@
   (check (stripped-read "#f") => #f)
   (check (stripped-read "()") => '())
   (check (stripped-read "#!r6rs ()") => '())
-  (check (stripped-read "(#!r6rs)") => '()))
+  (check (stripped-read "(#!r6rs)") => '())
+  (check (stripped-read "#\\NEWLINE") => 'error)
+  (check (stripped-read "#!fold-case #\\NEWLINE") => #\newline)
+  (check (stripped-read "#!no-fold-case #\\NEWLINE") => 'error)
+  (check (stripped-read "#!fold-case X") => 'x)
+  (check (stripped-read "#!fold-case STRAßE") => 'strasse))
 
 (check-report)
-(exit (if (check-passed? 19) 0 1))
+(exit (if (check-passed? 24) 0 1))
 
 ;; TODO: nested comments   #|##||#|#
 ;; TODO: (check (stripped-read "#!\tr6rs ()") => ?)

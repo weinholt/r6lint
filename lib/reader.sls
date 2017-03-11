@@ -90,12 +90,14 @@
   (define-record-type reader
     (fields port filename
             (mutable line) (mutable column)
-            (mutable saved-line) (mutable saved-column))
+            (mutable saved-line) (mutable saved-column)
+            (mutable fold-case)         ;boolean
+            (mutable mode))             ;default or r6rs (unused)
     (sealed #t) (opaque #f) (nongenerative)
     (protocol
      (lambda (p)
        (lambda (port filename)
-         (p port filename 1 0 1 0)))))
+         (p port filename 1 0 1 0 #f 'default)))))
 
   (define (reader-mark reader)
     (reader-saved-line-set! reader (reader-line reader))
@@ -196,7 +198,10 @@
     (let lp ((chars initial-chars))
       (let ((c (lookahead-char p)))
         (cond ((char-delimiter? c)
-               (cons 'identifier (string->symbol (list->string (reverse chars)))))
+               (let ((id (list->string (reverse chars))))
+                 (if (reader-fold-case p)
+                     (cons 'identifier (string->symbol (string-foldcase id)))
+                     (cons 'identifier (string->symbol id)))))
               ((or (char-ci<=? #\a c #\Z)
                    (char<=? #\0 c #\9)
                    (memq c '(#\! #\$ #\% #\& #\* #\/ #\: #\< #\= #\> #\? #\^ #\_ #\~
@@ -324,9 +329,11 @@
                  '(abbrev . unsyntax-splicing))
                 (else '(abbrev . unsyntax))))
              ((#\v)
-              (unless (eqv? #\u (get-char p)) (reader-error p "expected #vu8("))
-              (unless (eqv? #\8 (get-char p)) (reader-error p "expected #vu8("))
-              (unless (eqv? #\( (get-char p)) (reader-error p "expected #vu8("))
+              (let* ((c1 (get-char p))
+                     (c2 (get-char p))
+                     (c3 (get-char p)))
+                (unless (and (eqv? c1 #\u) (eqv? c2 #\8) (eqv? c3 #\())
+                  (reader-error p "expected #vu8(")))
               'bytevector)
              ((#\;)                     ;s-expr comment
               (get-datum p)
@@ -346,21 +353,18 @@
                 (get-lexeme p)))
              ((#\!)                     ;#!r6rs etc
               (if (memv (lookahead-char p) '(#\/ #\space))
-                  (let ((line (reader-line p))
-                        (column (- (reader-column p) 2)))
+                  (let ((line (reader-saved-line p))
+                        (column (reader-saved-column p)))
                     `(shebang ,line ,column . ,(get-line p)))
                   (let ((id (get-lexeme p)))
                     (cond ((and (pair? id) (eq? (car id) 'identifier))
                            (case (cdr id)
-                             ((r6rs)
-                              ;; r6rs.pdf
-                              'TODO)
-                             ((fold-case)
-                              ;; r6rs-app.pdf
-                              (reader-error p "TODO: The #!fold-case directive is not supported"))
-                             ((no-fold-case)
-                              ;; r6rs-app.pdf
-                              #t)
+                             ((r6rs)    ;r6rs.pdf
+                              (reader-mode-set! p 'r6rs))
+                             ((fold-case) ;r6rs-app.pdf
+                              (reader-fold-case-set! p #t))
+                             ((no-fold-case) ;r6rs-app.pdf
+                              (reader-fold-case-set! p #f))
                              (else
                               (reader-error p "This is an unsupported directive" (cdr id))))
                            (cons 'directive (cdr id)))
@@ -390,29 +394,32 @@
                                                    (cdr chars))
                                     (reader-error p "non-hex character in hex-escaped character"
                                             (list->string (cdr chars))))
-                                  (let ((sv (string->number (list->string (cdr chars))
-                                                           16)))
+                                  (let ((sv (string->number (list->string (cdr chars)) 16)))
                                     (when (not (or (<= 0 sv #xD7FF)
                                                    (<= #xE000 sv #x10FFFF)))
                                       (reader-error p "hex-escaped character outside valid range" sv))
                                     (integer->char sv)))
                                  (else
-                                  (cond ((assoc (list->string chars)
-                                                '(("nul" . #\nul)
-                                                  ("alarm" . #\alarm)
-                                                  ("backspace" . #\backspace)
-                                                  ("tab" . #\tab)
-                                                  ("linefeed" . #\linefeed)
-                                                  ("newline" . #\linefeed)
-                                                  ("vtab" . #\vtab)
-                                                  ("page" . #\page)
-                                                  ("return" . #\return)
-                                                  ("esc" . #\esc)
-                                                  ("space" . #\space)
-                                                  ("delete" . #\delete)))
-                                         => cdr)
-                                        (else (reader-error p "unknown character name"
-                                                      (list->string chars))))))))
+                                  (let ((char-name (list->string chars))
+                                        (char-names '(("nul" . #\nul)
+                                                      ("alarm" . #\alarm)
+                                                      ("backspace" . #\backspace)
+                                                      ("tab" . #\tab)
+                                                      ("linefeed" . #\linefeed)
+                                                      ("newline" . #\linefeed)
+                                                      ("vtab" . #\vtab)
+                                                      ("page" . #\page)
+                                                      ("return" . #\return)
+                                                      ("esc" . #\esc)
+                                                      ("space" . #\space)
+                                                      ("delete" . #\delete))))
+                                    (cond
+                                      ((assoc char-name char-names) => cdr)
+                                      ((and (reader-fold-case p)
+                                            (assoc (string-foldcase char-name) char-names)) => cdr)
+                                      (else
+                                       (reader-error p "unknown character name"
+                                                     (list->string chars)))))))))
                         (else
                          (lp (cons (get-char p) chars)))))))
              (else (reader-error p "unknown #-syntax" c)))))
