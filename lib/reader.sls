@@ -26,26 +26,25 @@
 (library (r6lint lib reader)
   (export get-lexeme
           detect-scheme-file-type
-          make-reader reader-error
-          read-port
-
+          make-reader reader-error reader-warning
+          reader-tolerant reader-tolerant-set!
           read-annotated
           annotation? annotation-expression annotation-stripped annotation-source
           annotation-source->condition source-condition? source-filename
           source-line source-column)
-  (import (rnrs base)
-          (rnrs bytevectors)
-          (rnrs control)
-          (rnrs conditions)
-          (rnrs exceptions)
-          (rnrs lists)
-          (prefix (only (rnrs io ports) lookahead-char get-char put-char eof-object?
+  (import (rnrs base (6))
+          (rnrs bytevectors (6))
+          (rnrs control (6))
+          (rnrs conditions (6))
+          (rnrs arithmetic fixnums (6))
+          (rnrs exceptions (6))
+          (rnrs lists (6))
+          (prefix (only (rnrs io ports (6)) lookahead-char get-char put-char eof-object?
                         call-with-string-output-port)
                   rnrs:)
-
-          (only (rnrs io simple) display newline)  ;debugging
-          (rnrs records syntactic)
-          (rnrs unicode))
+          (only (rnrs io simple (6)) write display newline current-error-port) ;debugging
+          (rnrs records syntactic (6))
+          (rnrs unicode (6)))
 
   (define eof-object? rnrs:eof-object?)
 
@@ -92,12 +91,13 @@
             (mutable line) (mutable column)
             (mutable saved-line) (mutable saved-column)
             (mutable fold-case)         ;boolean
-            (mutable mode))             ;default or r6rs (unused)
+            (mutable mode)              ;default or r6rs (unused)
+            (mutable tolerant))         ;tolerant to errors
     (sealed #t) (opaque #f) (nongenerative)
     (protocol
      (lambda (p)
        (lambda (port filename)
-         (p port filename 1 0 1 0 #f 'default)))))
+         (p port filename 1 0 1 0 #f 'default #f)))))
 
   (define (reader-mark reader)
     (reader-saved-line-set! reader (reader-line reader))
@@ -137,25 +137,36 @@
     (let-values (((d d*) (handle-lexeme reader (get-lexeme reader))))
       d))
 
-  (define (read-port p filename)
-    (let ((reader (make-reader p filename)))
-      (let f ()
-        (let ((x (read-annotated reader)))
-          (if (eof-object? x)
-              '()
-              (cons x (f)))))))
-
 ;;; Lexeme reader
 
+  (define (lexical-condition reader msg irritants)
+    (condition
+     (make-lexical-violation)
+     (make-message-condition msg)
+     (make-source-condition (reader-filename reader)
+                            (reader-saved-line reader)
+                            (reader-saved-column reader))
+     (make-irritants-condition irritants)))
+
   (define (reader-error reader msg . irritants)
-    (raise
-      (condition
-       (make-lexical-violation)
-       (make-message-condition msg)
-       (make-source-condition (reader-filename reader)
-                              (reader-saved-line reader)
-                              (reader-saved-column reader))
-       (make-irritants-condition irritants))))
+    ;; Non-recoverable errors.
+    (raise (lexical-condition reader msg irritants)))
+
+  (define (reader-warning reader msg . irritants)
+    ;; Recoverable if the reader is in tolerant mode.
+    (if (reader-tolerant reader)
+        (raise-continuable
+          (condition
+           (make-warning)
+           (lexical-condition reader msg irritants)))
+        (apply reader-error reader msg irritants)))
+
+  (define (eof-warning reader)
+    (reader-warning reader "Unexpected EOF"))
+
+  (define (unicode-scalar-value? sv)
+    (and (fx<=? 0 sv #x10FFFF)
+         (not (fx<=? #xD800 sv #xDFFF))))
 
   (define (get-char-skipping-whitespace p)
     (let ((c (get-char p)))
@@ -179,20 +190,25 @@
         (char-whitespace? c)))
 
   (define (get-inline-hex-escape p)
+    (reader-mark p)
     (let lp ((digits '()))
       (let ((c (get-char p)))
         (cond ((eof-object? c)
-               (reader-error p "eof in escape"))
+               (eof-warning p)
+               #\nul)
               ((or (char<=? #\0 c #\9)
                    (char-ci<=? #\a c #\f))
                (lp (cons c digits)))
-              ((char=? c #\;)
-               (guard (_ (else
-                          ;; XXX: do this without guard
-                          (reader-error p "invalid character in escape"
-                                  (list->string (reverse digits)))))
-                 (integer->char (string->number (list->string (reverse digits)) 16))))
-              (else (reader-error p "invalid escape" c))))))
+              ((and (char=? c #\;) (pair? digits))
+               (let ((sv (string->number (list->string (reverse digits)) 16)))
+                 (cond ((unicode-scalar-value? sv)
+                        (integer->char sv))
+                       (else
+                        (reader-warning p "Inline hex escape outside valid range" sv)
+                        #\nul))))
+              (else
+               (reader-warning p "Invalid inline hex escape" c)
+               #\nul)))))
 
   (define (get-identifier p initial-chars)
     (let lp ((chars initial-chars))
@@ -213,23 +229,31 @@
                (lp (cons (get-char p) chars)))
               ((char=? c #\\)           ;\xUUUU;
                (get-char p)             ;consume #\\
-               (unless (eqv? #\x (lookahead-char p))
-                 (reader-error p "invalid character following \\"))
-               (get-char p)             ;consume #\x
-               (lp (cons (get-inline-hex-escape p) chars)))
+               (let ((c (get-char p)))  ;should be #\x
+                 (cond ((eqv? c #\x)
+                        (lp (cons (get-inline-hex-escape p) chars)))
+                       (else
+                        (cond ((eof-object? c)
+                               (eof-warning p))
+                              (else
+                               (reader-warning p "Invalid character following \\")))
+                        (lp chars)))))
               (else
-               (reader-error p "invalid character in identifier" c))))))
+               (reader-warning p "Invalid character in identifier" c)
+               (get-char p)
+               (lp chars))))))
 
   (define (get-number p initial-chars)
     (let lp ((chars initial-chars))
       (let ((c (lookahead-char p)))
-        (cond ((and (not (eqv? c #\#))
-                    (char-delimiter? c))
-               ;; XXX: some standard numbers are not supported
+        (cond ((and (not (eqv? c #\#)) (char-delimiter? c))
+               ;; TODO: some standard numbers are not supported
                ;; everywhere, should use a number lexer.
-               (or (string->number (list->string (reverse chars)))
-                   (reader-error p "not a proper number"
-                           (list->string (reverse chars)))))
+               (let ((str (list->string (reverse chars))))
+                 (cond ((string->number str))
+                       (else
+                        (reader-warning p "Invalid number syntax" str)
+                        0))))
               (else
                (lp (cons (get-char p) chars)))))))
 
@@ -237,7 +261,8 @@
     (let lp ((chars '()))
       (let ((c (lookahead-char p)))
         (cond ((eof-object? c)
-               (reader-error p "end of file in the middle of a string"))
+               (eof-warning p)
+               c)
               ((char=? c #\")
                (get-char p)
                (list->string (reverse chars)))
@@ -245,7 +270,8 @@
                (get-char p)             ;consume #\\
                (let ((c (lookahead-char p)))
                  (cond ((eof-object? c)
-                        (reader-error p "end of file in escape"))
+                        (eof-warning p)
+                        c)
                        ((or (memq c '(#\tab #\linefeed #\x0085 #\x2028))
                             (eq? (char-general-category c) 'Zs))
                         ;; \<intraline whitespace>*<line ending>
@@ -254,7 +280,8 @@
                                   (lambda ()
                                     (let ((c (lookahead-char p)))
                                       (cond ((eof-object? c)
-                                             (reader-error p "end of file in escape"))
+                                             (eof-warning p)
+                                             c)
                                             ((or (char=? c '#\tab)
                                                  (eq? (char-general-category c) 'Zs))
                                              (get-char p)
@@ -273,7 +300,7 @@
                                                          '(#\linefeed #\x0085))
                                                (get-char p)))
                                             (else
-                                             (reader-error p "expected a line ending" c)))))))
+                                             (reader-warning p "Expected a line ending" c)))))))
                           (skip-intraline-whitespace*)
                           (skip-newline)
                           (skip-intraline-whitespace*)
@@ -292,7 +319,8 @@
                                ((#\r) #\return)
                                ((#\x) (get-inline-hex-escape p))
                                (else
-                                (reader-error p "invalid escape in string" c)))
+                                (reader-warning p "Invalid escape in string" c)
+                                #\nul))
                              chars))))))
               (else
                (lp (cons (get-char p) chars)))))))
@@ -301,7 +329,7 @@
     (assert (reader? p))
     (skip-whitespace p)
     (reader-mark p)
-    (let lp ((c (get-char p)))
+    (let ((c (get-char p)))
       (cond
         ((eof-object? c) c)
         ((char=? c #\;)                 ;a comment like this one
@@ -329,12 +357,14 @@
                  '(abbrev . unsyntax-splicing))
                 (else '(abbrev . unsyntax))))
              ((#\v)
-              (let* ((c1 (get-char p))
-                     (c2 (get-char p))
-                     (c3 (get-char p)))
-                (unless (and (eqv? c1 #\u) (eqv? c2 #\8) (eqv? c3 #\())
-                  (reader-error p "expected #vu8(")))
-              'bytevector)
+              (let* ((c1 (and (eqv? (lookahead-char p) #\u) (get-char p)))
+                     (c2 (and (eqv? c1 #\u) (eqv? (lookahead-char p) #\8) (get-char p)))
+                     (c3 (and (eqv? c2 #\8) (eqv? (lookahead-char p) #\() (get-char p))))
+                (cond ((and (eqv? c1 #\u) (eqv? c2 #\8) (eqv? c3 #\())
+                       'bytevector)
+                      (else
+                       (reader-warning p "Expected #vu8(")
+                       (get-lexeme p)))))
              ((#\;)                     ;s-expr comment
               (get-datum p)
               (get-lexeme p))
@@ -343,7 +373,9 @@
                         (lambda ()
                           (let lp ()
                             (let ((c (get-char p)))
-                              (cond ((eof-object? c) (reader-error p "end of file in #|-comment"))
+                              (cond ((eof-object? c)
+                                     (eof-warning p)
+                                     c)
                                     ((and (char=? c #\|) (eqv? (lookahead-char p) #\#))
                                      (get-char p))
                                     ((and (char=? c #\#) (eqv? (get-char p) #\|))
@@ -366,41 +398,47 @@
                              ((no-fold-case) ;r6rs-app.pdf
                               (reader-fold-case-set! p #f))
                              (else
-                              (reader-error p "This is an unsupported directive" (cdr id))))
+                              (reader-warning p "Invalid directive" (cdr id))))
                            (cons 'directive (cdr id)))
                           (else
-                           (reader-error p "Expected an identifier after #!"))))))
+                           (reader-warning p "Expected an identifier after #!")
+                           (get-lexeme p))))))
              ((#\b #\B #\o #\O #\d #\D #\x #\X #\i #\I #\e #\E)
               (get-number p (list c #\#)))
              ((#\t #\T)
               (unless (char-delimiter? (lookahead-char p))
-                (reader-error p "read as #t and expected a delimiter to follow"))
+                (reader-warning p "A delimiter is expected after #t"))
               #t)
              ((#\f #\F)
               (unless (char-delimiter? (lookahead-char p))
-                (reader-error p "read as #f and expected a delimiter to follow"))
+                (reader-warning p "A delimiter is expected after #f"))
               #f)
              ((#\\)
-              (let lp ((chars '()))
+              (let lp ((char* '()))
                 (let ((c (lookahead-char p)))
-                  (cond ((and (pair? chars) (char-delimiter? c))
-                         (let ((chars (reverse chars)))
-                           (cond ((null? chars) (reader-error p "empty character"))
-                                 ((null? (cdr chars)) (car chars))
-                                 ((char=? (car chars) #\x)
-                                  (unless (for-all (lambda (c)
-                                                     (or (char<=? #\0 c #\9)
-                                                         (char-ci<=? #\a c #\f)))
-                                                   (cdr chars))
-                                    (reader-error p "non-hex character in hex-escaped character"
-                                            (list->string (cdr chars))))
-                                  (let ((sv (string->number (list->string (cdr chars)) 16)))
-                                    (when (not (or (<= 0 sv #xD7FF)
-                                                   (<= #xE000 sv #x10FFFF)))
-                                      (reader-error p "hex-escaped character outside valid range" sv))
-                                    (integer->char sv)))
+                  (cond ((and (pair? char*) (char-delimiter? c))
+                         (let ((char* (reverse char*)))
+                           (cond ((null? char*)
+                                  (reader-warning p "Empty character name")
+                                  #\nul)
+                                 ((null? (cdr char*)) (car char*))
+                                 ((char=? (car char*) #\x)
+                                  (cond ((for-all (lambda (c)
+                                                    (or (char<=? #\0 c #\9)
+                                                        (char-ci<=? #\a c #\f)))
+                                                  (cdr char*))
+                                         (let ((sv (string->number (list->string (cdr char*)) 16)))
+                                           (cond ((unicode-scalar-value? sv)
+                                                  (integer->char sv))
+                                                 (else
+                                                  (reader-warning p "Hex-escaped character outside valid range" sv)
+                                                  #\nul))))
+                                        (else
+                                         (reader-warning p "Invalid character in hex-escaped character"
+                                                         (list->string (cdr char*)))
+                                         #\nul)))
                                  (else
-                                  (let ((char-name (list->string chars))
+                                  (let ((char-name (list->string char*))
                                         (char-names '(("nul" . #\nul)
                                                       ("alarm" . #\alarm)
                                                       ("backspace" . #\backspace)
@@ -418,11 +456,16 @@
                                       ((and (reader-fold-case p)
                                             (assoc (string-foldcase char-name) char-names)) => cdr)
                                       (else
-                                       (reader-error p "unknown character name"
-                                                     (list->string chars)))))))))
+                                       (reader-warning p "Invalid character name" char-name)
+                                       #\nul)))))))
+                        ((and (null? char*) (eof-object? c))
+                         (reader-warning p "Unexpected EOF")
+                         #\nul)
                         (else
-                         (lp (cons (get-char p) chars)))))))
-             (else (reader-error p "unknown #-syntax" c)))))
+                         (lp (cons (get-char p) char*)))))))
+             (else
+              (reader-warning p "Invalid #-syntax" c)
+              (get-lexeme p)))))
         ((char=? c #\")
          (get-string p))
         ((memq c '(#\0 #\1 #\2 #\3 #\4 #\5 #\6 #\7 #\8 #\9))
@@ -437,9 +480,9 @@
          (cond ((eqv? #\. (lookahead-char p))
                 (get-char p)            ;consume second dot
                 (unless (eqv? #\. (get-char p)) ;consume third dot
-                  (reader-error p "expecting ... identifier"))
+                  (reader-warning p "Expected the ... identifier"))
                 (unless (char-delimiter? (lookahead-char p))
-                  (reader-error p "expecting ... identifier"))
+                  (reader-warning p "Expected the ... identifier"))
                 (cons 'identifier '...))
                ((char-delimiter? (lookahead-char p))
                 'dot)
@@ -452,10 +495,15 @@
                         '(Lu Ll Lt Lm Lo Mn Nl No Pd Pc Po Sc Sm Sk So Co))))
          (get-identifier p (list c)))
         ((char=? c #\\)                 ;<inline hex escape>
-         (unless (eqv? #\x (lookahead-char p))
-           (reader-error p "invalid character following \\"))
-         (get-char p)                   ;consume #\x
-         (get-identifier p (list (get-inline-hex-escape p))))
+         (let ((c (get-char p)))
+           (cond ((eqv? c #\x)
+                  (get-identifier p (list (get-inline-hex-escape p))))
+                 (else
+                  (cond ((eof-object? c)
+                         (eof-warning p))
+                        (else
+                         (reader-warning p "Invalid character following \\")))
+                  (get-lexeme p)))))
         (else
          (case c
            ((#\() 'openp)
@@ -471,7 +519,8 @@
                '(abbrev . unquote-splicing))
               (else '(abbrev . unquote))))
            (else
-            (reader-error p "completely unexpected character" c)))))))
+            (reader-warning p "Invalid character" c)
+            (get-lexeme p)))))))
 
 ;;; Datum reader
 
@@ -493,46 +542,55 @@
   ;;                    integer in {0, ..., 255}〉
 
   (define (get-compound-datum p terminator type)
-    (let lp ((data '()) (data* '()))
+    (let lp ((data '()) (data^ '()))
       (let ((x (get-lexeme p)))
-        (cond ((eof-object? x)
-               (reader-error p "end of file in compound datum" terminator))
-              ((eq? x terminator)
+        (cond ((or (eof-object? x) (eq? x terminator) (memq x '(closep closeb)))
+               (unless (eq? x terminator)
+                 (cond ((eof-object? x)
+                        (eof-warning p))
+                       (else
+                        (reader-warning p "Mismatched parenthesis/brackets" x terminator))))
                (case type
                  ((vector)
                   (let ((s (list->vector (reverse data))))
-                    (values s (annotate p s (list->vector (reverse data*))))))
+                    (values s (annotate p s (list->vector (reverse data^))))))
                  ((list)
                   (let ((s (reverse data)))
-                    (values s (annotate p s (reverse data*)))))
+                    (values s (annotate p s (reverse data^)))))
                  ((bytevector)
                   (let ((s (u8-list->bytevector (reverse data))))
                     (values s (annotate p s s))))
                  (else
-                  (reader-error p "Internal error in get-compound-datum"))))
-              ((memq x '(closep closeb))
-               (reader-error p "mismatching closing parenthesis" x terminator))
-              ((eq? x 'dot)
-               (unless (eq? type 'list)
-                 (reader-error p "dot used in non-list datum"))
-               (let-values (((x x*) (handle-lexeme p (get-lexeme p))))
-                 (let ((t (get-lexeme p)))
-                   (unless (eq? t terminator)
-                     (reader-error p "multiple dots in list" terminator t)))
-                 (let ((s (append (reverse data) x)))
-                   (values s (annotate p s (append (reverse data*) x*))))))
+                  (reader-error p "Internal error in get-compound-datum" type))))
+              ((eq? x 'dot)             ;a dot like in (1 . 2)
+               (cond ((eq? type 'list)
+                      (let-values (((x x^) (handle-lexeme p (get-lexeme p))))
+                        (let ((t (get-lexeme p)))
+                          (cond ((eq? t terminator))
+                                ((eof-object? t)
+                                 (eof-warning p)
+                                 t)
+                                (else
+                                 (reader-warning p "Improperly terminated dot list"))))
+                        (let ((s (append (reverse data) x)))
+                          (values s (annotate p s (append (reverse data^) x^))))))
+                     (else
+                      (reader-warning p "Dot used in non-list datum")
+                      (lp data data^))))
               ((and (pair? x) (eq? (car x) 'directive))
                ;; Ignore directives like #!r6rs at this level.
-               (lp data data*))
+               (lp data data^))
               (else
-               (let-values (((d d*) (handle-lexeme p x)))
+               (let-values (((d d^) (handle-lexeme p x)))
                  (case type
                    ((bytevector)
-                    (unless (and (number? d) (exact? d) (<= 0 d 255))
-                      (reader-error p "Invalid datum in bytevector" d))
-                    (lp (cons d data) data*))
+                    (cond ((and (fixnum? d) (fx<=? 0 d 255))
+                           (lp (cons d data) data^))
+                          (else
+                           (reader-warning p "Invalid datum in bytevector" d)
+                           (lp data data^))))
                    (else
-                    (lp (cons d data) (cons d* data*))))))))))
+                    (lp (cons d data) (cons d^ data^))))))))))
 
   (define (handle-lexeme p x)
     (case x
@@ -549,16 +607,18 @@
                   (number? x) (bytevector? x))
               (values x (annotate p x x)))
              ((eof-object? x)
-              (values x x))
+              (values x (annotate p x x)))
              ((and (pair? x) (eq? (car x) 'identifier))
               (values (cdr x) (annotate p (cdr x) (cdr x))))
              ((and (pair? x) (eq? (car x) 'abbrev))
               (let ((lex (get-lexeme p)))
-                (when (eof-object? lex)
-                  (reader-error p "Unexpected end of file after abbreviation"))
-                (let-values (((d d*) (handle-lexeme p lex)))
-                  (let ((s (list (cdr x) d)))
-                    (values s (annotate p s (list (cdr x) d*)))))))
+                (cond ((eof-object? lex)
+                       (eof-warning p)
+                       (values lex lex))
+                      (else
+                       (let-values (((d d*) (handle-lexeme p lex)))
+                         (let ((s (list (cdr x) d)))
+                           (values s (annotate p s (list (cdr x) d*)))))))))
              ((and (pair? x) (eq? (car x) 'directive))
               ;; Ignore directives like #!r6rs at this level.
               (handle-lexeme p (get-lexeme p)))
@@ -567,4 +627,5 @@
               ;; FIXME: should only work for programs.
               (handle-lexeme p (get-lexeme p)))
              (else
-              (reader-error p "Unexpected lexeme" x)))))))
+              (reader-warning p "Unexpected lexeme" x)
+              (handle-lexeme p (get-lexeme p))))))))

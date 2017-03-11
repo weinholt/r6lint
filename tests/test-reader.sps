@@ -70,10 +70,11 @@
   (check (stripped-read "#!fold-case #\\NEWLINE") => #\newline)
   (check (stripped-read "#!no-fold-case #\\NEWLINE") => 'error)
   (check (stripped-read "#!fold-case X") => 'x)
-  (check (stripped-read "#!fold-case STRAßE") => 'strasse))
+  (check (stripped-read "#!fold-case STRAßE") => 'strasse)
+  (check (stripped-read "\"\\xf6;\"") => "\xf6;"))
 
 (check-report)
-(exit (if (check-passed? 24) 0 1))
+(exit (if (check-passed? 25) 0 1))
 
 ;; TODO: nested comments   #|##||#|#
 ;; TODO: (check (stripped-read "#!\tr6rs ()") => ?)

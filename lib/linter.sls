@@ -22,7 +22,6 @@
 #!r6rs
 
 ;; R6RS linter.
-
 (library (r6lint lib linter)
   (export lint)
   (import (r6lint lib expander)
@@ -32,33 +31,48 @@
 
   (define *DEBUG* #f)
 
-  ;; The main entry point of the linter. Lints an open file, emitting messages.
+  ;; The main entry point of the linter. Lints an input port, emitting messages.
   (define (lint filename port emit)
-    (guard (exn
-            ((maybe-translate-condition emit exn))
-            (else
-             (unless *DEBUG*
-               (print-condition exn (current-error-port)))
-             (emit filename 1 0 'fatal 'internal-error
-                   "Internal error while linting the file")
-             (for-each (lambda (condition)
-                         (emit filename 1 0 'error 'internal-error condition))
-                       (simple-conditions exn))))
-      (let ((filetype (detect-scheme-file-type port)))
-        (set-port-position! port 0)
-        (case filetype
-          ((r6rs-library)
-           (lint-r6rs-library filename port emit))
-          ((r6rs-program)
-           (lint-r6rs-program filename port emit))
-          ((empty)
-           (emit filename 1 0 'error 'file-empty "The file is empty"))
-          (else
-           (emit filename 1 0 'error 'unknown-filetype "Unable to detect the filetype"))))))
+    (let ((emit (emit-filter-repeats emit)))
+      (guard (con (else #f))
+        (with-exception-handler
+          (lambda (con)
+            (cond
+              ((maybe-translate-condition emit con))
+              (else
+               (unless *DEBUG*
+                 (print-condition con (current-error-port)))
+               (emit filename 1 0 'fatal 'internal-error "Error while linting the file")
+               (for-each (lambda (condition)
+                           (emit filename 1 0 'error 'internal-error condition))
+                         (simple-conditions con))))
+            (unless (warning? con)
+              (raise con)))
+          (lambda ()
+            (let ((filetype (detect-scheme-file-type port)))
+              (set-port-position! port 0)
+              (case filetype
+                ((r6rs-library)
+                 (lint-r6rs-library filename port emit))
+                ((r6rs-program)
+                 (lint-r6rs-program filename port emit))
+                ((empty)
+                 (emit filename 1 0 'error 'file-empty "The file is empty"))
+                (else
+                 (emit filename 1 0 'error 'unknown-filetype "Unable to detect the filetype")))))))))
+
+  ;; Filter out repeated messages.
+  (define (emit-filter-repeats emit)
+    (let ((previous #f))
+      (lambda current
+        (unless (equal? current previous)
+          (apply emit current)
+          (set! previous current)))))
 
   ;; Lint an R6RS library.
   (define (lint-r6rs-library filename port emit)
     (let ((reader (make-reader port filename)))
+      (reader-tolerant-set! reader #t)
       (let ((form (read-annotated reader)))
         (expand-library (list form))
         (let ((lexeme (get-lexeme reader)))
@@ -78,76 +92,86 @@
             (else
              (expand-top-level forms)))))
 
+  (define (read-port p filename)
+    (let ((reader (make-reader p filename)))
+      (reader-tolerant-set! reader #t)
+      (let f ()
+        (let ((x (read-annotated reader)))
+          (if (or (eof-object? x)
+                  (and (annotation? x) (eof-object? (annotation-expression x))))
+              '()
+              (cons x (f)))))))
+
   ;; Translate the source-condition. The format of source-character is
   ;; constructed by read-annotated.
-  (define (emit-with-source emit exn level id message)
-    (cond ((source-condition? exn)
-           (let ((filename (source-filename exn))
-                 (line (source-line exn))
-                 (column (source-column exn)))
+  (define (emit-with-source emit con level id message)
+    (cond ((source-condition? con)
+           (let ((filename (source-filename con))
+                 (line (source-line con))
+                 (column (source-column con)))
              (emit filename line column level id message)))
           (else
-           (emit #f 1 0 level id message))))
+           (emit #f 1 0 level id message)))
+    #t)
 
   (define (->string datum)
     (call-with-string-output-port
       (lambda (p) (display datum p))))
 
   ;; Translates a condition raised during linting.
-  (define (maybe-translate-condition emit exn)
+  (define (maybe-translate-condition emit con)
     (when *DEBUG*
-      (print-condition exn (current-error-port)))
+      (print-condition con (current-error-port)))
     (cond
-      ((and (who-condition? exn) (message-condition? exn)
-            (eq? (condition-who exn) 'file-location)
-            (string=? (condition-message exn) "cannot find library"))
-       (emit-with-source emit exn 'error 'library-not-found
+      ((and (who-condition? con) (message-condition? con)
+            (eq? (condition-who con) 'file-location)
+            (string=? (condition-message con) "cannot find library"))
+       (emit-with-source emit con 'error 'library-not-found
                          (string-append "Library not found: "
-                                        (->string (car (condition-irritants exn))))))
+                                        (->string (car (condition-irritants con))))))
 
-      ((and (who-condition? exn) (message-condition? exn)
-            (string=? (condition-message exn) "unbound identifier"))
-       (emit-with-source emit exn 'error 'unbound-identifier
+      ((and (who-condition? con) (message-condition? con)
+            (string=? (condition-message con) "unbound identifier"))
+       (emit-with-source emit con 'error 'unbound-identifier
                          (string-append "Unbound identifier: "
-                                        (->string (condition-who exn)))))
+                                        (->string (condition-who con)))))
 
-      ((and (lexical-violation? exn) (message-condition? exn))
+      ((and (lexical-violation? con) (message-condition? con))
        (cond
-         ((string=? (condition-message exn) "Trailing data after library")
-          (emit-with-source emit exn 'convention 'library-trailing-data
-                            (condition-message exn)))
+         ((string=? (condition-message con) "Trailing data after library")
+          (emit-with-source emit con 'convention 'library-trailing-data
+                            (condition-message con)))
          (else
-          (emit-with-source emit exn 'error 'lexical-violation
-                            (string-append "Lexical violation: "
-                                           (condition-message exn))))))
+          (emit-with-source emit con 'error 'lexical-violation
+                            (condition-message con)))))
 
-      ((and (syntax-violation? exn))
+      ((and (syntax-violation? con))
        (cond
-         ((and (message-condition? exn)
-               (string=? (condition-message exn) "cannot export unbound identifier"))
-          (emit-with-source emit exn 'error 'unbound-export
+         ((and (message-condition? con)
+               (string=? (condition-message con) "cannot export unbound identifier"))
+          (emit-with-source emit con 'error 'unbound-export
                             (string-append "Unbound export: "
-                                           (->string (syntax-violation-form exn)))))
+                                           (->string (syntax-violation-form con)))))
          (else
-          (emit-with-source emit exn 'error 'invalid-syntax
-                            (string-append "Invalid syntax, form: "
-                                           (->string (syntax-violation-form exn))
+          (emit-with-source emit con 'error 'invalid-syntax
+                            (string-append "Form: "
+                                           (->string (syntax-violation-form con))
                                            ", subform: "
-                                           (->string (syntax-violation-subform exn)))))))
+                                           (->string (syntax-violation-subform con)))))))
 
-      ((source-condition? exn)
+      ((source-condition? con)
        ;; Fallthrough: an unknown condition with a source-condition.
        (unless *DEBUG*
-         (print-condition exn (current-error-port)))
-       (emit-with-source emit exn 'error 'unknown-error
-                         (if (message-condition? exn)
+         (print-condition con (current-error-port)))
+       (emit-with-source emit con 'error 'unknown-error
+                         (if (message-condition? con)
                              (string-append "Unknown error: "
-                                            (condition-message exn))
+                                            (condition-message con))
                              "Unknown error")))
       (else #f)))
 
   ;; R6RS condition printer.
-  (define (print-condition exn p)
+  (define (print-condition con p)
     (define (write/limit datum p)
       (define limit 100)
       (let ((str (call-with-string-output-port
@@ -158,8 +182,8 @@
               (else
                (display str p)))))
     (display ";;; Exception:\n" p)
-    (cond ((condition? exn)
-           (let ((c* (simple-conditions exn)))
+    (cond ((condition? con)
+           (let ((c* (simple-conditions con)))
              (do ((i 1 (fx+ i 1))
                   (c* c* (cdr c*)))
                  ((null? c*))
@@ -196,6 +220,6 @@
                (newline p))))
           (else
            (display ";;; A non-condition object was raised:\n" p)
-           (write exn p)
+           (write con p)
            (newline p)))
     (display ";;; End of condition.\n" p)))

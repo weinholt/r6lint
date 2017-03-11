@@ -39,8 +39,8 @@
         (errors '()))
     (letrec ((emit
               (lambda (filename line col level id message)
-                ;; (write (vector line col level id message))
-                ;; (newline)
+                ;; (write (vector line col level id message) (current-error-port))
+                ;; (newline (current-error-port))
                 (set! errors (cons (vector filename line col level id) errors)))))
       (lint "<test>" (open-string-input-port input) emit))
     (reverse errors)))
@@ -60,14 +60,15 @@
          '())
 
   (check (lint-it " #!/usr/bin/env scheme-script\n") =>
-         '(#("<test>" 1 1 error lexical-violation)))
+         '(#("<test>" 1 1 error lexical-violation)
+           #("<test>" 1 0 error top-level-import-missing)))
 
   (check (lint-it "#!/usr/bin/env scheme-script\n#!r6rs\n(display \"Hello world\")") =>
          '(#("<test>" 1 0 error top-level-import-missing)))
 
-  #;
-  (check (lint-it "(import (nonexistent-library))") =>
-         '(#("<test>" 1 8 error library-not-found)))
+  ;; FIXME: source location for the error
+  ;; (check (lint-it "(import (nonexistent-library))") =>
+  ;;        '(#("<test>" 1 8 error library-not-found)))
 
   )
 
@@ -152,9 +153,7 @@
   (import (rnrs)))
 ()")
          =>
-         '(#("<test>" 5 0 convention library-trailing-data)))
-
-  )
+         '(#("<test>" 5 0 convention library-trailing-data))))
 
 ;;; General syntax violations
 
@@ -171,6 +170,58 @@
          ;; FIXME: Should be column 3
          => '(#("<test>" 9 6 error invalid-syntax))))
 
+;;; General lexical violations
+
+(letrec ()
+  (check (lint-it
+          "(import (rnrs))
+(let ([x 1)) (display x))")
+         ;; FIXME: Should be 2 11
+         => '(#("<test>" 2 10 error lexical-violation)))
+  (check (lint-it
+          "(import (rnrs))
+'\\x;")
+         => '(#("<test>" 2 3 error lexical-violation)))
+  ;; String inline hex escapes
+  (check (lint-it
+          "(import (rnrs))
+(display \"#\\xd7ff;\")")
+         => '())
+  (check (lint-it
+          "(import (rnrs))
+(display \"#\\xd800;\")")
+         => '(#("<test>" 2 13 error lexical-violation)))
+  (check (lint-it
+          "(import (rnrs))
+(display \"#\\xd800;\")
+(display \"#\\xd801;\")")
+         => '(#("<test>" 2 13 error lexical-violation)
+              #("<test>" 3 13 error lexical-violation)))
+  ;; Unexpected EOF
+  (check (lint-it
+          "(import (rnrs))
+(display \"#\\x")
+         => '(#("<test>" 2 13 error lexical-violation)))
+  (check (lint-it
+          "(import (rnrs))
+#\\")
+         => '(#("<test>" 2 0 error lexical-violation)))
+  (check (lint-it
+          "(import (rnrs))
+'(x . ")
+         => '(#("<test>" 2 7 error lexical-violation)))
+  (check (lint-it
+          "(import (rnrs))
+'x \\")
+         => '(#("<test>" 2 3 error lexical-violation)))
+  (check (lint-it
+          "(import (rnrs))
+'\\x")
+         => '(#("<test>" 2 3 error lexical-violation)))
+  (check (lint-it
+          "(import (rnrs))
+`")
+         => '(#("<test>" 2 1 error lexical-violation))))
 
 (check-report)
-(exit (if (check-passed? 17) 0 1))
+(exit (if (check-passed? 28) 0 1))
