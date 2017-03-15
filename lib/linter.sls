@@ -75,9 +75,16 @@
       (reader-tolerant-set! reader #t)
       (let ((form (read-annotated reader)))
         (expand-library (list form))
-        (let ((lexeme (get-lexeme reader)))
-          (unless (eof-object? lexeme)
-            (reader-error reader "Trailing data after library"))))))
+        ;; Check what is after the closing brace of the library form.
+        (let lp ((i 0))
+          (let ((lexeme (get-lexeme reader)))
+            (cond ((eof-object? lexeme)
+                   (when (= i 0)
+                     (reader-warning reader "No newline at end of file")))
+                  ((and (pair? lexeme) (memq (car lexeme) '(comment whitespace)))
+                   (lp (+ i 1)))
+                  (else
+                   (reader-warning reader "Trailing data after library form"))))))))
 
   ;; Lint an R6RS program.
   (define (lint-r6rs-program filename port emit)
@@ -126,7 +133,7 @@
       ((and (who-condition? con) (message-condition? con)
             (eq? (condition-who con) 'file-location)
             (string=? (condition-message con) "cannot find library"))
-       (emit-with-source emit con 'error 'library-not-found
+       (emit-with-source emit con 'error 'library-not-found ;XXX: should be fatal?
                          (string-append "Library not found: "
                                         (->string (car (condition-irritants con))))))
 
@@ -138,8 +145,12 @@
 
       ((and (lexical-violation? con) (message-condition? con))
        (cond
-         ((string=? (condition-message con) "Trailing data after library")
+         ;; XXX: These need to be rethought. Can't add more and more here.
+         ((string=? (condition-message con) "Trailing data after library form")
           (emit-with-source emit con 'convention 'library-trailing-data
+                            (condition-message con)))
+         ((string=? (condition-message con) "No newline at end of file")
+          (emit-with-source emit con 'convention 'no-newline-eof
                             (condition-message con)))
          (else
           (emit-with-source emit con 'error 'lexical-violation

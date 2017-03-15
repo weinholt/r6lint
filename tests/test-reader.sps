@@ -34,9 +34,9 @@
                               (reverse lexeme*)
                               (lp (cons lexeme lexeme*)))))))))
   (check (get-all "#!/usr/bin/env scheme-script\n#f") => '((shebang 1 0 . "/usr/bin/env scheme-script") #f))
-  (check (get-all " #!/usr/bin/env scheme-script\n#f") => '((shebang 1 1 . "/usr/bin/env scheme-script") #f))
-  (check (get-all " #f ") => '(#f))
-  (check (get-all "#!r6rs #f") => '((directive . r6rs) #f)))
+  (check (get-all " #!/usr/bin/env scheme-script\n#f") => '((whitespace . " ") (shebang 1 1 . "/usr/bin/env scheme-script") #f))
+  (check (get-all " #f ") => '((whitespace . " ") #f (whitespace . " ")))
+  (check (get-all "#!r6rs #f") => '((directive . r6rs) (whitespace . " ") #f)))
 
 ;; Detect file type
 (letrec ((detect (lambda (input)
@@ -51,7 +51,9 @@
   (check (detect "#!r6rs (library ") => 'r6rs-library)
   ;; Looks weird but it's allowed.
   (check (detect "#!r6rs [library ") => 'r6rs-library)
-  (check (detect "#!r6rs [import ") => 'r6rs-program))
+  (check (detect "[#!r6rs library ") => 'r6rs-library)
+  (check (detect "#!r6rs [import ") => 'r6rs-program)
+  (check (detect "[#!r6rs import ") => 'r6rs-program))
 
 ;; Reading
 (letrec ((stripped-read
@@ -74,7 +76,7 @@
   (check (stripped-read "\"\\xf6;\"") => "\xf6;"))
 
 (check-report)
-(exit (if (check-passed? 25) 0 1))
+(exit (if (check-passed? 27) 0 1))
 
 ;; TODO: nested comments   #|##||#|#
 ;; TODO: (check (stripped-read "#!\tr6rs ()") => ?)

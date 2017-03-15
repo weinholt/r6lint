@@ -223,5 +223,11 @@
 `")
          => '(#("<test>" 2 1 error lexical-violation))))
 
+;;; Lexical style checks
+
+(letrec ()
+  (check (lint-it "(library (foo) (export) (import))")
+         => '(#("<test>" 1 33 convention no-newline-eof))))
+
 (check-report)
-(exit (if (check-passed? 28) 0 1))
+(exit (if (check-passed? 29) 0 1))
