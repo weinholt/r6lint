@@ -77,11 +77,11 @@
         (expand-library (list form))
         ;; Check what is after the closing brace of the library form.
         (let lp ((i 0))
-          (let ((lexeme (get-lexeme reader)))
-            (cond ((eof-object? lexeme)
+          (let ((token (get-token reader)))
+            (cond ((eof-object? token)
                    (when (= i 0)
                      (reader-warning reader "No newline at end of file")))
-                  ((and (pair? lexeme) (memq (car lexeme) '(comment whitespace)))
+                  ((and (pair? token) (memq (car token) '(comment whitespace)))
                    (lp (+ i 1)))
                   (else
                    (reader-warning reader "Trailing data after library form"))))))))

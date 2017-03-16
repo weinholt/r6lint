@@ -24,7 +24,7 @@
 ;; R6RS lexer and reader with source annotations.
 
 (library (r6lint lib reader)
-  (export get-lexeme
+  (export get-token
           detect-scheme-file-type
           make-reader reader-error reader-warning
           reader-tolerant reader-tolerant-set!
@@ -83,13 +83,13 @@
   ;; r6rs-program, empty or unknown.
   (define (detect-scheme-file-type port)
     (let ((reader (make-reader port "<unknown>")))
-      (let ((lexeme (get-lexeme/no-comment reader)))
+      (let ((lexeme (get-lexeme reader)))
         (cond ((eof-object? lexeme)
                'empty)
               ((and (pair? lexeme) (eq? (car lexeme) 'shebang))
                'r6rs-program)
               ((memq lexeme '(openp openb)) ;a pair
-               (let ((lexeme (get-lexeme/no-comment reader)))
+               (let ((lexeme (get-lexeme reader)))
                  (cond ((and (pair? lexeme) (eq? (car lexeme) 'identifier))
                         (case (cdr lexeme)
                           ((import) 'r6rs-program)
@@ -141,12 +141,12 @@
 
   (define (read-annotated reader)
     (assert (reader? reader))
-    (let-values (((d d*) (handle-lexeme reader (get-lexeme/no-comment reader))))
+    (let-values (((d d*) (handle-lexeme reader (get-lexeme reader))))
       d*))
 
   (define (get-datum reader)
     (assert (reader? reader))
-    (let-values (((d d*) (handle-lexeme reader (get-lexeme/no-comment reader))))
+    (let-values (((d d*) (handle-lexeme reader (get-lexeme reader))))
       d))
 
 ;;; Lexeme reader
@@ -324,16 +324,17 @@
 
   ;; Get the next lexeme from the reader, ignoring anything that is
   ;; like a comment.
-  (define (get-lexeme/no-comment p)
+  (define (get-lexeme p)
     (define (ignore-lexeme? x)
       ;; Directives (like #!r6rs) and whitespaces can appear anywhere.
       (and (pair? x) (memq (car x) '(directive whitespace))))
-    (let ((lexeme (get-lexeme p)))
+    (let ((lexeme (get-token p)))
       (if (ignore-lexeme? lexeme)
-          (get-lexeme/no-comment p)
+          (get-lexeme p)
           lexeme)))
 
-  (define (get-lexeme p)
+  ;; Get the next token. Can be a lexeme, directive, whitespace or comment.
+  (define (get-token p)
     (assert (reader? p))
     (reader-mark p)
     (let ((c (get-char p)))
@@ -346,12 +347,12 @@
            (let ((c (get-char p)))
              (cond ((eof-object? c) c)
                    ((memv c '(#\linefeed #\x0085 #\x2028 #\x2029))
-                    (get-lexeme p))
+                    (get-token p))
                    ((char=? c #\return)
                     ;; Weird line ending again.
                     (when (memv (lookahead-char p) '(#\linefeed #\x0085))
                       (get-char p))
-                    (get-lexeme p))
+                    (get-token p))
                    (else (lp*))))))
         ((char=? c #\#)                 ;the mighty octothorpe
          (let ((c (get-char p)))
@@ -373,10 +374,10 @@
                        'bytevector)
                       (else
                        (reader-warning p "Expected #vu8(")
-                       (get-lexeme p)))))
+                       (get-token p)))))
              ((#\;)                     ;s-expr comment
               (get-datum p)
-              (get-lexeme p))
+              (get-token p))
              ((#\|)                     ;nested comment
               (letrec ((skip
                         (lambda ()
@@ -391,13 +392,13 @@
                                      (skip) (lp))
                                     (else (lp))))))))
                 (skip)
-                (get-lexeme p)))
+                (get-token p)))
              ((#\!)                     ;#!r6rs etc
               (if (memv (lookahead-char p) '(#\/ #\space))
                   (let ((line (reader-saved-line p))
                         (column (reader-saved-column p)))
                     `(shebang ,line ,column . ,(get-line p)))
-                  (let ((id (get-lexeme p)))
+                  (let ((id (get-token p)))
                     (cond ((and (pair? id) (eq? (car id) 'identifier))
                            (case (cdr id)
                              ((r6rs)    ;r6rs.pdf
@@ -411,7 +412,7 @@
                            (cons 'directive (cdr id)))
                           (else
                            (reader-warning p "Expected an identifier after #!")
-                           (get-lexeme p))))))
+                           (get-token p))))))
              ((#\b #\B #\o #\O #\d #\D #\x #\X #\i #\I #\e #\E)
               (get-number p (list c #\#)))
              ((#\t #\T)
@@ -474,7 +475,7 @@
                          (lp (cons (get-char p) char*)))))))
              (else
               (reader-warning p "Invalid #-syntax" c)
-              (get-lexeme p)))))
+              (get-token p)))))
         ((char=? c #\")
          (get-string p))
         ((memv c '(#\0 #\1 #\2 #\3 #\4 #\5 #\6 #\7 #\8 #\9))
@@ -512,7 +513,7 @@
                          (eof-warning p))
                         (else
                          (reader-warning p "Invalid character following \\")))
-                  (get-lexeme p)))))
+                  (get-token p)))))
         (else
          (case c
            ((#\() 'openp)
@@ -529,7 +530,7 @@
               (else '(abbrev . unquote))))
            (else
             (reader-warning p "Invalid character" c)
-            (get-lexeme p)))))))
+            (get-token p)))))))
 
 ;;; Datum reader
 
@@ -552,7 +553,7 @@
 
   (define (get-compound-datum p terminator type)
     (let lp ((data '()) (data^ '()))
-      (let ((x (get-lexeme/no-comment p)))
+      (let ((x (get-lexeme p)))
         (cond ((or (eof-object? x) (eq? x terminator) (memq x '(closep closeb)))
                (unless (eq? x terminator)
                  (cond ((eof-object? x)
@@ -573,8 +574,8 @@
                   (reader-error p "Internal error in get-compound-datum" type))))
               ((eq? x 'dot)             ;a dot like in (1 . 2)
                (cond ((eq? type 'list)
-                      (let-values (((x x^) (handle-lexeme p (get-lexeme/no-comment p))))
-                        (let ((t (get-lexeme/no-comment p)))
+                      (let-values (((x x^) (handle-lexeme p (get-lexeme p))))
+                        (let ((t (get-lexeme p)))
                           (cond ((eq? t terminator))
                                 ((eof-object? t)
                                  (eof-warning p)
@@ -617,7 +618,7 @@
              ((and (pair? x) (eq? (car x) 'identifier))
               (values (cdr x) (annotate p (cdr x) (cdr x))))
              ((and (pair? x) (eq? (car x) 'abbrev))
-              (let ((lex (get-lexeme/no-comment p)))
+              (let ((lex (get-lexeme p)))
                 (cond ((eof-object? lex)
                        (eof-warning p)
                        (values lex lex))
@@ -628,7 +629,7 @@
              ((and (pair? x) (eq? (car x) 'shebang) (eqv? (cadr x) 1) (eqv? (caddr x) 0))
               ;; Ignore the shebang ("#!/" or "#! " at the start of files).
               ;; FIXME: should only work for programs.
-              (handle-lexeme p (get-lexeme/no-comment p)))
+              (handle-lexeme p (get-lexeme p)))
              (else
               (reader-warning p "Unexpected lexeme" x)
-              (handle-lexeme p (get-lexeme/no-comment p))))))))
+              (handle-lexeme p (get-lexeme p))))))))

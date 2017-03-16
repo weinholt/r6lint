@@ -28,11 +28,11 @@
 ;; Lexing
 (letrec ((get-all (lambda (input)
                     (let ((reader (make-reader (open-string-input-port input) "<test>")))
-                      (let lp ((lexeme* '()))
-                        (let ((lexeme (get-lexeme reader)))
-                          (if (eof-object? lexeme)
-                              (reverse lexeme*)
-                              (lp (cons lexeme lexeme*)))))))))
+                      (let lp ((token* '()))
+                        (let ((token (get-token reader)))
+                          (if (eof-object? token)
+                              (reverse token*)
+                              (lp (cons token token*)))))))))
   (check (get-all "#!/usr/bin/env scheme-script\n#f") => '((shebang 1 0 . "/usr/bin/env scheme-script") #f))
   (check (get-all " #!/usr/bin/env scheme-script\n#f") => '((whitespace . " ") (shebang 1 1 . "/usr/bin/env scheme-script") #f))
   (check (get-all " #f ") => '((whitespace . " ") #f (whitespace . " ")))
@@ -73,10 +73,13 @@
   (check (stripped-read "#!no-fold-case #\\NEWLINE") => 'error)
   (check (stripped-read "#!fold-case X") => 'x)
   (check (stripped-read "#!fold-case STRAßE") => 'strasse)
-  (check (stripped-read "\"\\xf6;\"") => "\xf6;"))
+  (check (stripped-read "\"\\xf6;\"") => "\xf6;")
+  ;; There is no obfuscated Scheme contest.
+  (check (stripped-read "(let((* .(`'((unquote .(+ .[])).()))).())((caadr .(* .())).(#o-7 .[#E#x93/3])).[])") =>
+         '(let ([* `'(,+)]) ((caadr *) -7 49))))
 
 (check-report)
-(exit (if (check-passed? 27) 0 1))
+(exit (if (check-passed? 28) 0 1))
 
 ;; TODO: nested comments   #|##||#|#
 ;; TODO: (check (stripped-read "#!\tr6rs ()") => ?)
