@@ -61,24 +61,6 @@
       (reader-column-set! reader (+ (reader-column reader) 1))
       c))
 
-  ;; Get a line from the reader.
-  (define (get-line reader)
-    (rnrs:call-with-string-output-port
-      (lambda (out)
-        (do ((c (get-char reader) (get-char reader)))
-            ((or (eqv? c #\linefeed) (eof-object? c)))
-          (rnrs:put-char out c)))))
-
-  ;; Gets whitespace from the reader.
-  (define (get-whitespace reader char)
-    (rnrs:call-with-string-output-port
-     (lambda (out)
-       (let lp ((char char))
-         (rnrs:put-char out char)
-         (let ((char (lookahead-char reader)))
-           (when (and (char? char) (char-whitespace? char))
-             (lp (get-char reader))))))))
-
   ;; Detects the (intended) type of Scheme source: r6rs-library,
   ;; r6rs-program, empty or unknown.
   (define (detect-scheme-file-type port)
@@ -186,6 +168,25 @@
         (memv c '(#\( #\) #\[ #\] #\" #\; #\#))
         (char-whitespace? c)))
 
+  ;; Get a line from the reader.
+  (define (get-line reader)
+    (rnrs:call-with-string-output-port
+      (lambda (out)
+        (do ((c (get-char reader) (get-char reader)))
+            ((or (eqv? c #\linefeed) (eof-object? c)))
+          (rnrs:put-char out c)))))
+
+  ;; Gets whitespace from the reader.
+  (define (get-whitespace reader char)
+    (rnrs:call-with-string-output-port
+     (lambda (out)
+       (let lp ((char char))
+         (rnrs:put-char out char)
+         (let ((char (lookahead-char reader)))
+           (when (and (char? char) (char-whitespace? char))
+             (lp (get-char reader))))))))
+
+  ;; Get an inline hex escape (escaped character inside an identifier).
   (define (get-inline-hex-escape p)
     (reader-mark p)
     (let lp ((digits '()))
@@ -240,6 +241,7 @@
                (get-char p)
                (lp chars))))))
 
+  ;; Get a number from the reader.
   (define (get-number p initial-chars)
     (let lp ((chars initial-chars))
       (let ((c (lookahead-char p)))
@@ -254,6 +256,7 @@
               (else
                (lp (cons (get-char p) chars)))))))
 
+  ;; Get a string datum from the reader.
   (define (get-string p)
     (let lp ((chars '()))
       (let ((c (lookahead-char p)))
@@ -322,14 +325,56 @@
               (else
                (lp (cons (get-char p) chars)))))))
 
+  ;; Gets a nested comment from the reader.
+  (define (get-nested-comment reader)
+    ;; The reader is immediately after "#|".
+    (rnrs:call-with-string-output-port
+     (lambda (out)
+       (let lp ((levels 1) (c0 (get-char reader)))
+         (let ((c1 (get-char reader)))
+           (cond ((eof-object? c0)
+                  (eof-warning reader))
+                 ((and (eqv? c0 #\|) (eqv? c1 #\#))
+                  (unless (eqv? levels 1)
+                    (rnrs:put-char out c0)
+                    (rnrs:put-char out c1)
+                    (lp (- levels 1) (get-char reader))))
+                 ((and (eqv? c0 #\#) (eqv? c1 #\|))
+                  (rnrs:put-char out c0)
+                  (rnrs:put-char out c1)
+                  (lp (+ levels 1) (get-char reader)))
+                 (else
+                  (rnrs:put-char out c0)
+                  (lp levels c1))))))))
+
+  ;; Get a comment from the reader (including the terminating whitespace).
+  (define (get-comment reader)
+    ;; The reader is immediately after #\;.
+    (rnrs:call-with-string-output-port
+     (lambda (out)
+       (let lp ()
+         (let ((c (get-char reader)))
+           (unless (eof-object? c)
+             (rnrs:put-char out c)
+             (cond ((memv c '(#\linefeed #\x0085 #\x2028 #\x2029)))
+                   ((char=? c #\return)
+                    ;; Weird line ending. This lookahead is what forces
+                    ;; the procedure to include the terminator.
+                    (when (memv (lookahead-char reader) '(#\linefeed #\x0085))
+                      (rnrs:put-char out (get-char reader))))
+                   (else
+                    (lp)))))))))
+
+  ;; Whitespace and comments can appear anywhere.
+  (define (atmosphere? x)
+    (and (pair? x)
+         (memq (car x) '(directive whitespace comment inline-comment nested-comment))))
+
   ;; Get the next lexeme from the reader, ignoring anything that is
   ;; like a comment.
   (define (get-lexeme p)
-    (define (ignore-lexeme? x)
-      ;; Directives (like #!r6rs) and whitespaces can appear anywhere.
-      (and (pair? x) (memq (car x) '(directive whitespace))))
     (let ((lexeme (get-token p)))
-      (if (ignore-lexeme? lexeme)
+      (if (atmosphere? lexeme)
           (get-lexeme p)
           lexeme)))
 
@@ -343,17 +388,7 @@
         ((char-whitespace? c)
          `(whitespace . ,(get-whitespace p c)))
         ((char=? c #\;)                 ;a comment like this one
-         (let lp* ()
-           (let ((c (get-char p)))
-             (cond ((eof-object? c) c)
-                   ((memv c '(#\linefeed #\x0085 #\x2028 #\x2029))
-                    (get-token p))
-                   ((char=? c #\return)
-                    ;; Weird line ending again.
-                    (when (memv (lookahead-char p) '(#\linefeed #\x0085))
-                      (get-char p))
-                    (get-token p))
-                   (else (lp*))))))
+         `(comment . ,(get-comment p)))
         ((char=? c #\#)                 ;the mighty octothorpe
          (let ((c (get-char p)))
            (case c
@@ -376,23 +411,19 @@
                        (reader-warning p "Expected #vu8(")
                        (get-token p)))))
              ((#\;)                     ;s-expr comment
-              (get-datum p)
-              (get-token p))
+              ;; XXX: This includes the atmosphere between the "#;" and the datum.
+              (let lp ((atmosphere '()))
+                (let ((token (get-token p)))
+                  (cond ((eof-object? token)
+                         (eof-warning p)
+                         `(inline-comment ,(reverse atmosphere) . ,p))
+                        ((atmosphere? token)
+                         (lp (cons token atmosphere)))
+                        (else
+                         (let-values (((d d*) (handle-lexeme p token)))
+                           `(inline-comment ,(reverse atmosphere) . ,d)))))))
              ((#\|)                     ;nested comment
-              (letrec ((skip
-                        (lambda ()
-                          (let lp ()
-                            (let ((c (get-char p)))
-                              (cond ((eof-object? c)
-                                     (eof-warning p)
-                                     c)
-                                    ((and (char=? c #\|) (eqv? (lookahead-char p) #\#))
-                                     (get-char p))
-                                    ((and (char=? c #\#) (eqv? (get-char p) #\|))
-                                     (skip) (lp))
-                                    (else (lp))))))))
-                (skip)
-                (get-token p)))
+              `(nested-comment . ,(get-nested-comment p)))
              ((#\!)                     ;#!r6rs etc
               (if (memv (lookahead-char p) '(#\/ #\space))
                   (let ((line (reader-saved-line p))
