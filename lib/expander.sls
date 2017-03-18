@@ -109,7 +109,7 @@
     (parent                (macro . parent))
     (protocol              (macro . protocol))
     (sealed                (macro . sealed))
-    (opaque                (macro . opaque ))
+    (opaque                (macro . opaque))
     (nongenerative         (macro . nongenerative))
     (parent-rtd            (macro . parent-rtd))
     (define-record-type    (macro . define-record-type))
@@ -124,7 +124,7 @@
     ;;; corresponding record-constructor-descriptor.
     (&condition                ($core-rtd . (&condition-rtd &condition-rcd)))
     (&message                  ($core-rtd . (&message-rtd &message-rcd)))
-    (&warning                  ($core-rtd . (&warning-rtd &warning-rcd )))
+    (&warning                  ($core-rtd . (&warning-rtd &warning-rcd)))
     (&serious                  ($core-rtd . (&serious-rtd &serious-rcd)))
     (&error                    ($core-rtd . (&error-rtd &error-rcd)))
     (&violation                ($core-rtd . (&violation-rtd &violation-rcd)))
@@ -932,9 +932,9 @@
     (string-titlecase                           r uc)
     (string-upcase                              r uc)
     ;;;
-    (char-ready?                                )
-    (interaction-environment                    )
-    (load                                       )
+    (char-ready?)
+    (interaction-environment)
+    (load)
     ;;;
     (void                     $boot)
     (gensym                   $boot)
@@ -943,9 +943,9 @@
     (eval-core                $boot)
     (pretty-print             $boot)
     ;; (module                   cm)
-    (syntax-dispatch ) ; only goes to $all
-    (syntax-error    ) ; only goes to $all
-    (assertion-error                             )
+    (syntax-dispatch) ; only goes to $all
+    (syntax-error) ; only goes to $all
+    (assertion-error)
     (make-file-options)
     (ellipsis-map) ;for psyntax
 
@@ -1005,7 +1005,6 @@
     (&no-infinities-rcd)
     (&no-nans-rtd)
     (&no-nans-rcd)
-
     ))
 
 

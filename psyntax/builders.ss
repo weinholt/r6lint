@@ -158,7 +158,4 @@
                 (cons body-exp
                   (map
                     (lambda (var loc) (build-global-assignment ae loc var))
-                    vars locs))))))))
-
-
-  )
+                    vars locs)))))))))

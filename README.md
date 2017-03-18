@@ -7,11 +7,12 @@ r6lint is an R6RS syntax and style checker.
 It is currently somewhat rudimentary and at a PoC level. It shows the
 location of lexical errors and most of the time the location of
 syntactical errors (all invalid Scheme forms, as determined by
-psyntax).
+psyntax). There are some style checks for issues like hanging braces,
+but it doesn't know yet about all exceptions to the rules.
 
-The major missing features are lexical style checks (e.g. hanging
-parens) and static analysis (e.g. warnings about unused variables,
-wrong number of arguments/return values, known bad types).
+The major missing features are static analysis (e.g. warnings about
+unused variables, wrong number of arguments/return values, known bad
+types).
 
 ## Setup
 

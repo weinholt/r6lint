@@ -22,6 +22,7 @@
 #!r6rs
 
 ;; R6RS linter.
+
 (library (r6lint lib linter)
   (export lint)
   (import (r6lint lib expander)
@@ -33,7 +34,8 @@
 
   ;; The main entry point of the linter. Lints an input port, emitting messages.
   (define (lint filename port emit)
-    (let ((emit (emit-filter-repeats emit)))
+    (let ((emit (emit-filter-repeats emit))
+          (filetype (detect-scheme-file-type port)))
       (guard (con (else #f))
         (with-exception-handler
           (lambda (con)
@@ -49,17 +51,27 @@
             (unless (warning? con)
               (raise con)))
           (lambda ()
-            (let ((filetype (detect-scheme-file-type port)))
-              (set-port-position! port 0)
-              (case filetype
-                ((r6rs-library)
-                 (lint-r6rs-library filename port emit))
-                ((r6rs-program)
-                 (lint-r6rs-program filename port emit))
-                ((empty)
-                 (emit filename 1 0 'error 'file-empty "The file is empty"))
-                (else
-                 (emit filename 1 0 'error 'unknown-filetype "Unable to detect the filetype")))))))))
+            (set-port-position! port 0)
+            (case filetype
+              ((r6rs-library)
+               (lint-r6rs-library filename port emit))
+              ((r6rs-program)
+               (lint-r6rs-program filename port emit))
+              ((empty)
+               (emit filename 1 0 'error 'file-empty "The file is empty"))
+              (else
+               (emit filename 1 0 'error 'unknown-filetype "Unable to detect the filetype")))))
+        (with-exception-handler
+          (lambda (con)
+            (unless (warning? con)
+              (raise con)))
+          (lambda ()
+            ;; Do another pass based on just the tokens
+            (set-port-position! port 0)
+            (case filetype
+              ((r6rs-library r6rs-program)
+               (lint-r6rs-style filename port emit))
+              (else #f)))))))
 
   ;; Filter out repeated messages.
   (define (emit-filter-repeats emit)
@@ -102,12 +114,62 @@
   (define (read-port p filename)
     (let ((reader (make-reader p filename)))
       (reader-tolerant-set! reader #t)
-      (let f ()
+      (let lp ()
         (let ((x (read-annotated reader)))
           (if (or (eof-object? x)
                   (and (annotation? x) (eof-object? (annotation-expression x))))
               '()
-              (cons x (f)))))))
+              (cons x (lp)))))))
+
+  ;; Lint R6RS source for some token-level style warnings.
+  (define (lint-r6rs-style filename port emit)
+    (define (whitespace? x)
+      (and (pair? x) (eq? (car x) 'whitespace)))
+    (define (open? x)
+      (memq x '(openp openb)))
+    (define (close? x)
+      (memq x '(closep closeb)))
+    (define (abbrev? x)
+      (and (pair? x) (eq? (car x) 'abbrev)))
+    (define (eol-comment? x)
+      (and (pair? x) (eq? (car x) 'comment)))
+    (let ((reader (make-reader port filename)))
+      (let lp ((prev-prev #f)
+               (prev (get-token reader)))
+        (let ((token (get-token reader)))
+          (unless (eof-object? token)
+            (when (or (whitespace? token) (eol-comment? token))
+              (lint-trailing-whitespace reader filename emit (cdr token)))
+
+            (cond
+              ((and (close? token) (whitespace? prev) (not (eol-comment? prev-prev)))
+               (emit filename (reader-saved-line reader) (reader-saved-column reader)
+                     'convention 'hanging-brace "Parenthesis grow lonely"))
+
+              ((and (open? token)
+                    (not (or (whitespace? prev) (open? prev) (abbrev? prev) (eol-comment? prev))))
+               (emit filename (reader-saved-line reader) (reader-saved-column reader)
+                     'convention 'no-space-before-paren "No space before parenthesis")))
+
+            (lp prev token))))))
+
+  (define (lint-trailing-whitespace reader filename emit str)
+    ;; The whitespace tokens contain multiple lines.
+    (call-with-port (open-string-input-port str)
+      (lambda (p)
+        (let lp ((c0 (get-char p))
+                 (line (reader-saved-line reader))  ;the position of c0
+                 (column (reader-saved-column reader)))
+          (let ((c1 (get-char p)))
+            (unless (eof-object? c1)
+              (let ((line (if (char=? c0 #\linefeed) (fx+ line 1) line))
+                    (column (if (char=? c0 #\linefeed) 0 (fx+ column 1))))
+                (when (and (char=? c1 #\linefeed)
+                           (or (eq? (char-general-category c0) 'Zs)
+                               (memv c0 '(#\tab))))
+                  ;; Linefeed with some space before it.
+                  (emit filename line (+ column 1) 'convention 'trailing-whitespace "Trailing whitespace"))
+                (lp c1 line column))))))))
 
   ;; Translate the source-condition. The format of source-character is
   ;; constructed by read-annotated.
@@ -133,7 +195,7 @@
       ((and (who-condition? con) (message-condition? con)
             (eq? (condition-who con) 'file-location)
             (string=? (condition-message con) "cannot find library"))
-       (emit-with-source emit con 'error 'library-not-found ;XXX: should be fatal?
+       (emit-with-source emit con 'fatal 'library-not-found
                          (string-append "Library not found: "
                                         (->string (car (condition-irritants con))))))
 

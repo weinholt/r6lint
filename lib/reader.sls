@@ -28,6 +28,8 @@
           detect-scheme-file-type
           make-reader reader-error reader-warning
           reader-tolerant reader-tolerant-set!
+          reader-line reader-column
+          reader-saved-line reader-saved-column
           read-annotated
           annotation? annotation-expression annotation-stripped annotation-source
           annotation-source->condition source-condition? source-filename
@@ -123,12 +125,12 @@
 
   (define (read-annotated reader)
     (assert (reader? reader))
-    (let-values (((d d*) (handle-lexeme reader (get-lexeme reader))))
-      d*))
+    (let-values (((d d^) (handle-lexeme reader (get-lexeme reader))))
+      d^))
 
   (define (get-datum reader)
     (assert (reader? reader))
-    (let-values (((d d*) (handle-lexeme reader (get-lexeme reader))))
+    (let-values (((d d^) (handle-lexeme reader (get-lexeme reader))))
       d))
 
 ;;; Lexeme reader

@@ -362,5 +362,4 @@
     (lambda (x)
       (unless (library? x)
         (assertion-violation 'library-spec "not a library" x))
-      (list (library-id x) (library-name x) (library-version x))))
-  )
+      (list (library-id x) (library-name x) (library-version x)))))

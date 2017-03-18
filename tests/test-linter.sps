@@ -227,7 +227,46 @@
 
 (letrec ()
   (check (lint-it "(library (foo) (export) (import))")
-         => '(#("<test>" 1 33 convention no-newline-eof))))
+         => '(#("<test>" 1 33 convention no-newline-eof)))
+
+  (check (lint-it "(library(foo) (export) (import))\n")
+         => '(#("<test>" 1 8 convention no-space-before-paren)))
+
+  (check (lint-it "(library (foo)(export) (import))\n")
+         => '(#("<test>" 1 14 convention no-space-before-paren)))
+
+  (check (lint-it
+          "(library (foo)\n  (export)\n  (import)\n)\n")
+         => '(#("<test>" 4 0 convention hanging-brace)))
+
+  (check (lint-it
+          "(library (foo)\n  (export) \n  (import))\n")
+         => '(#("<test>" 2 12 convention trailing-whitespace)))
+
+  (check (lint-it
+          "(library (foo)\n  (export)\n  (import (rnrs))\n \n  '())\n")
+         => '(#("<test>" 4 2 convention trailing-whitespace)))
+
+  (check (lint-it
+          "(library (foo)\n  (export)\n  (import (rnrs))\n\t\n  '())\n")
+         => '(#("<test>" 4 2 convention trailing-whitespace)))
+
+  ;; \f (#\page or ^L) is ok.
+  (check (lint-it
+          "(library (foo)\n  (export)\n  (import (rnrs))\n\f\n  '())\n")
+         => '())
+
+  (check (lint-it
+          "(library (foo)
+  (export)
+  (import (rnrs))
+
+  (define (test)
+    (display 1)
+    ;; (display 2)
+    ))
+")
+         => '()))
 
 (check-report)
-(exit (if (check-passed? 29) 0 1))
+(exit (if (check-passed? 37) 0 1))

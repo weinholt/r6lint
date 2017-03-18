@@ -17,7 +17,12 @@ cat > r6lintrc-test <<EOF
 EOF
 
 bin/r6lint --config r6lintrc-test bin/r6lint
+bin/r6lint -c r6lintrc-test psyntax/builders.ss
 bin/r6lint -c r6lintrc-test psyntax/compat.ss
+bin/r6lint -c r6lintrc-test psyntax/config.ss
+bin/r6lint -c r6lintrc-test psyntax/expander.ss
+bin/r6lint -c r6lintrc-test psyntax/internal.ss
+bin/r6lint -c r6lintrc-test psyntax/library-manager.ss
 bin/r6lint -c r6lintrc-test tests/test-reader.sps
 bin/r6lint -c r6lintrc-test tests/test-linter.sps
 echo All tests passed

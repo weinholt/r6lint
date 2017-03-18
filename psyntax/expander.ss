@@ -868,8 +868,7 @@
         ((_ (id . fmls) b b* ...) (id? id)
          (begin
            (verify-formals fmls x)
-           (values id (cons 'defun x #;(cons fmls (cons b b*))
-                            ))))
+           (values id (cons 'defun x))))
         ((_ id val) (id? id)
          (values id (cons 'expr val)))
         ((_ id) (id? id)
