@@ -39,6 +39,7 @@
       (guard (con (else #f))
         (with-exception-handler
           (lambda (con)
+            ;;(raise con)
             (cond
               ((maybe-translate-condition emit con))
               (else
@@ -246,7 +247,7 @@
   ;; R6RS condition printer.
   (define (print-condition con p)
     (define (write/limit datum p)
-      (define limit 100)
+      (define limit 1000)
       (let ((str (call-with-string-output-port
                    (lambda (p) (write datum p)))))
         (cond ((> (string-length str) limit)

@@ -85,7 +85,8 @@ Usage:
                     '())))
     ;; XXX: Should allow the path of the script/library to be used
     (parameterize ((library-path (cond ((assq 'library-path config) => cdr)
-                                       (else (library-path)))))
+                                       (else (library-path))))
+                   (library-extensions '(".sls" ".ss" ".scm")))
       (call-with-port (open-input-file filename)
         (lambda (p)
           (lint filename p message-printer))))))

@@ -24,10 +24,11 @@
           gensym void eval-core symbol-value set-symbol-value!
           make-file-options read-library-source-file
           annotation? annotation-expression annotation-stripped
-          read-annotated annotation-source annotation-source->condition
+          make-reader read-annotated annotation-source annotation-source->condition
           library-version-mismatch-warning
+          library-stale-warning
           file-locator-resolution-error
-          *GLOBALS*)
+          label-binding set-label-binding! remove-location *GLOBALS*)
   (import
     (only (r6lint lib reader)
           make-reader
@@ -44,6 +45,15 @@
             (gensym gensym*)))
 
   (define *GLOBALS* (make-eq-hashtable))
+
+  (define (label-binding x)
+    (hashtable-ref *GLOBALS* x #f))
+
+  (define (set-label-binding! x v)
+    (hashtable-set! *GLOBALS* x v))
+
+  (define (remove-location x)
+    (hashtable-delete! *GLOBALS* x))
 
   ;; This is the environment which will be available to eval-core,
   ;; which is used to run code during expansion.
@@ -98,13 +108,21 @@
 
   (define (library-version-mismatch-warning name depname filename)
     ;;; please override this in your production implementation
-    (display "Warning: inconsistent dependencies: ")
-    (display name)
-    (display depname)
-    (display filename))
+    (define p (current-error-port))
+    (display "Warning: inconsistent dependencies: " p)
+    (display name p)
+    (display depname p)
+    (display filename p))
 
+  (define (library-stale-warning name filename)
+    (define p (current-error-port))
+    (display "WARNING: library " p)
+    (display name p)
+    (display " is stale; file " p)
+    (display filename p)
+    (display "will be recompiled from source.\n" p))
 
-  (define (file-locator-resolution-error libname failed-list)
+  (define (file-locator-resolution-error libname failed-list pending-list)
     ;;; please override this in your production implementation
     (error 'file-location "cannot find library" libname))
 

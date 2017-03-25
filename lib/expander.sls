@@ -38,11 +38,6 @@
     (r6lint psyntax library-manager)
     (r6lint psyntax expander))
 
-(define (for-each-in-order p x*)
-  (unless (null? x*)
-    (p (car x*))
-    (for-each-in-order p (cdr x*))))
-
 (define psyntax-system-macros
   '((define              (define))
     (define-syntax       (define-syntax))
@@ -1029,14 +1024,14 @@
   (let ((export-subst    (make-collection))
         (export-env      (make-collection))
         (export-primlocs (make-collection)))
-    (for-each-in-order
+    (for-each
       (lambda (x)
         (let ((name (car x)) (binding (cadr x)))
           (let ((label (gensym)))
             (export-subst (cons name label))
             (export-env   (cons label binding)))))
       psyntax-system-macros)
-    (for-each-in-order
+    (for-each
       (lambda (x)
         (cond
           ((macro-identifier x) (values))
@@ -1108,7 +1103,8 @@
 
 (define (expand-top-level forms)
   (parameterize ((current-library-collection (copy-collection bootstrap-collection)))
-    (let-values ([(req* exp) (top-level-expander forms)])
+    (let-values ([(req* exp macro* export-subst export-env)
+                  (top-level-expander forms)])
       #;
       (current-primitive-locations (lambda (x) x))
       (let ([codes '()])
@@ -1117,11 +1113,11 @@
             (lambda (lib)
               (unless (memq lib ls)
                 (set! ls (cons lib ls))
-                (for-each-in-order serialize (library-invoke-dependencies lib))
+                (for-each serialize (library-invoke-dependencies lib))
                 (let ([p (cons (library-name lib)
                                (library-invoke-code lib))])
                   (set! codes (cons p codes)))))))
-        (for-each-in-order serialize req*)
+        (for-each serialize req*)
         (reverse (cons (cons '*main* exp) codes))))))
 
 (define (expand-all library-form*)
@@ -1133,7 +1129,7 @@
       ((not (assq (cdar subst) env)) (prune-subst (cdr subst) env))
       (else (cons (car subst) (prune-subst (cdr subst) env)))))
   (let-values (((name* code* subst env) (make-init-code)))
-    (for-each-in-order
+    (for-each
       (lambda (x)
         (let-values (((name code export-subst export-env)
                       (boot-library-expand x)))
@@ -1203,5 +1199,5 @@
                               bootstrap-collection))
                 (install-library
                    id name version import-libs visit-libs invoke-libs
-                   subst env values values '#f '#f visible? '#f)))))))
-    (for-each-in-order build-library library-legend))))
+                   subst env values values '#f '#f #f '() visible? '#f)))))))
+    (for-each build-library library-legend))))
