@@ -115,22 +115,26 @@
         (apply make-source-condition (vector->list x))
         (condition)))
 
-  (define (annotate reader stripped datum)
-    (assert (reader? reader))
+  (define (reader-source reader)
+    (vector (reader-filename reader)
+            (reader-saved-line reader)
+            (reader-saved-column reader)))
+
+  (define (annotate source stripped datum)
+    #;(assert (reader? reader))
+    (assert (vector? source))
     (make-annotation datum
-                     (vector (reader-filename reader)
-                             (reader-saved-line reader)
-                             (reader-saved-column reader))
+                     source
                      stripped))
 
   (define (read-annotated reader)
     (assert (reader? reader))
-    (let-values (((d d^) (handle-lexeme reader (get-lexeme reader))))
+    (let-values (((_ d^) (handle-lexeme reader (get-lexeme reader))))
       d^))
 
   (define (get-datum reader)
     (assert (reader? reader))
-    (let-values (((d d^) (handle-lexeme reader (get-lexeme reader))))
+    (let-values (((d _) (handle-lexeme reader (get-lexeme reader))))
       d))
 
 ;;; Lexeme reader
@@ -584,7 +588,7 @@
   ;; <u8> → 〈any <number> representing an exact
   ;;                    integer in {0, ..., 255}〉
 
-  (define (get-compound-datum p terminator type)
+  (define (get-compound-datum p src terminator type)
     (let lp ((data '()) (data^ '()))
       (let ((x (get-lexeme p)))
         (cond ((or (eof-object? x) (eq? x terminator) (memq x '(closep closeb)))
@@ -596,13 +600,13 @@
                (case type
                  ((vector)
                   (let ((s (list->vector (reverse data))))
-                    (values s (annotate p s (list->vector (reverse data^))))))
+                    (values s (annotate src s (list->vector (reverse data^))))))
                  ((list)
                   (let ((s (reverse data)))
-                    (values s (annotate p s (reverse data^)))))
+                    (values s (annotate src s (reverse data^)))))
                  ((bytevector)
                   (let ((s (u8-list->bytevector (reverse data))))
-                    (values s (annotate p s s))))
+                    (values s (annotate src s s))))
                  (else
                   (reader-error p "Internal error in get-compound-datum" type))))
               ((eq? x 'dot)             ;a dot like in (1 . 2)
@@ -616,7 +620,7 @@
                                 (else
                                  (reader-warning p "Improperly terminated dot list"))))
                         (let ((s (append (reverse data) x)))
-                          (values s (annotate p s (append (reverse data^) x^))))))
+                          (values s (annotate src s (append (reverse data^) x^))))))
                      (else
                       (reader-warning p "Dot used in non-list datum")
                       (lp data data^))))
@@ -633,36 +637,37 @@
                     (lp (cons d data) (cons d^ data^))))))))))
 
   (define (handle-lexeme p x)
-    (case x
-      ((openp)
-       (get-compound-datum p 'closep 'list))
-      ((openb)
-       (get-compound-datum p 'closeb 'list))
-      ((vector)
-       (get-compound-datum p 'closep 'vector))
-      ((bytevector)
-       (get-compound-datum p 'closep 'bytevector))
-      (else
-       (cond ((or (char? x) (string? x) (boolean? x)
-                  (number? x) (bytevector? x))
-              (values x (annotate p x x)))
-             ((eof-object? x)
-              (values x (annotate p x x)))
-             ((and (pair? x) (eq? (car x) 'identifier))
-              (values (cdr x) (annotate p (cdr x) (cdr x))))
-             ((and (pair? x) (eq? (car x) 'abbrev))
-              (let ((lex (get-lexeme p)))
-                (cond ((eof-object? lex)
-                       (eof-warning p)
-                       (values lex lex))
-                      (else
-                       (let-values (((d d*) (handle-lexeme p lex)))
-                         (let ((s (list (cdr x) d)))
-                           (values s (annotate p s (list (cdr x) d*)))))))))
-             ((and (pair? x) (eq? (car x) 'shebang) (eqv? (cadr x) 1) (eqv? (caddr x) 0))
-              ;; Ignore the shebang ("#!/" or "#! " at the start of files).
-              ;; FIXME: should only work for programs.
-              (handle-lexeme p (get-lexeme p)))
-             (else
-              (reader-warning p "Unexpected lexeme" x)
-              (handle-lexeme p (get-lexeme p))))))))
+    (let ((src (reader-source p)))
+      (case x
+        ((openp)
+         (get-compound-datum p src 'closep 'list))
+        ((openb)
+         (get-compound-datum p src 'closeb 'list))
+        ((vector)
+         (get-compound-datum p src 'closep 'vector))
+        ((bytevector)
+         (get-compound-datum p src 'closep 'bytevector))
+        (else
+         (cond ((or (char? x) (string? x) (boolean? x)
+                    (number? x) (bytevector? x))
+                (values x (annotate src x x)))
+               ((eof-object? x)
+                (values x (annotate src x x)))
+               ((and (pair? x) (eq? (car x) 'identifier))
+                (values (cdr x) (annotate src (cdr x) (cdr x))))
+               ((and (pair? x) (eq? (car x) 'abbrev))
+                (let ((lex (get-lexeme p)))
+                  (cond ((eof-object? lex)
+                         (eof-warning p)
+                         (values lex lex))
+                        (else
+                         (let-values (((d d*) (handle-lexeme p lex)))
+                           (let ((s (list (cdr x) d)))
+                             (values s (annotate src s (list (cdr x) d*)))))))))
+               ((and (pair? x) (eq? (car x) 'shebang) (eqv? (cadr x) 1) (eqv? (caddr x) 0))
+                ;; Ignore the shebang ("#!/" or "#! " at the start of files).
+                ;; FIXME: should only work for programs.
+                (handle-lexeme p (get-lexeme p)))
+               (else
+                (reader-warning p "Unexpected lexeme" x)
+                (handle-lexeme p (get-lexeme p)))))))))

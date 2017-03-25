@@ -1162,7 +1162,7 @@
          (build-conditional no-source
            (chi-expr e0 r mr)
            (chi-expr e1 r mr)
-           (build-void))))))
+           (build-void no-source))))))
 
   (define case-macro
     (lambda (e)
@@ -2432,7 +2432,8 @@
                        mr)))
                 (build-application no-source
                   (build-primref no-source 'apply)
-                  (list (build-lambda no-source new-vars body) y)))))))
+                  (list (build-lambda no-source new-vars body)
+                        (build-lexical-reference no-source y))))))))
       (define invalid-ids-error
         (lambda (id* e class)
           (let find ((id* id*) (ok* '()))
@@ -2455,7 +2456,7 @@
                (let ((y (gen-lexical 'tmp)))
                  (let ((test
                         (cond
-                          ((eq? fender #t) y)
+                          ((eq? fender #t) (build-lexical-reference no-source y))
                           (else
                            (let ((call
                                   (build-dispatch-call
@@ -2465,9 +2466,8 @@
                                 call
                                 (build-data no-source #f)))))))
                     (let ((conseq
-                           (build-dispatch-call pvars expr
-                             (build-lexical-reference no-source y)
-                             r mr)))
+                           (build-dispatch-call
+                              pvars expr y r mr)))
                       (let ((altern
                              (gen-syntax-case x keys clauses r mr)))
                         (build-application no-source
@@ -3031,7 +3031,7 @@
          (let ((expr (cdr rhs)))
            (build-sequence no-source
              (list (chi-expr expr r mr)
-                   (build-void)))))
+                   (build-void no-source)))))
         (else (assertion-violation 'chi-rhs "BUG: invalid rhs" rhs)))))
 
   (define (expand-interaction-rhs*/init* lhs* rhs* init* r mr)
@@ -3714,7 +3714,7 @@
                     (append (apply append (reverse mod**)) e*)
                     r mr)))
           (let ((e (cond
-                     ((null? e*) (build-void))
+                     ((null? e*) (build-void no-source))
                      ((null? (cdr e*)) (car e*))
                      (else (build-sequence no-source e*)))))
              (values e r))))))
@@ -3768,10 +3768,11 @@
                                  (build-library-letrec* no-source mix?
                                    name lex* loc* rhs*
                                    (if (null? init*)
-                                       (build-void)
+                                       (build-void no-source)
                                        (build-sequence no-source init*))))
                                 (invoke-definitions
-                                  (map build-global-define (map cdr global*))))
+                                  (map (lambda (x) (build-global-define no-source x))
+                                       (map cdr global*))))
                             (values
                               (itc) (rtc) (vtc)
                               (build-sequence no-source
@@ -3974,7 +3975,7 @@
       ((x filename verify-name)
        (define (build-visit-code macro*)
          (if (null? macro*)
-             (build-void)
+             (build-void no-source)
              (build-sequence no-source
                (map (lambda (x)
                       (let ((loc (car x)) (src (cddr x)))
@@ -4030,7 +4031,7 @@
   (define build-exports
     (lambda (lex*+loc* init*)
       (build-sequence no-source
-        (cons (build-void)
+        (cons (build-void no-source)
           (rev-map-append
             (lambda (x)
               (build-global-assignment no-source (cdr x) (car x)))

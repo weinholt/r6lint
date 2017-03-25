@@ -38,8 +38,8 @@
                        (newline p)))))
         (errors '()))
     (letrec ((emit
-              (lambda (filename line col level id message)
-                ;; (write (vector line col level id message) (current-error-port))
+              (lambda (filename line col level id _message)
+                ;; (write (vector line col level id _message) (current-error-port))
                 ;; (newline (current-error-port))
                 (set! errors (cons (vector filename line col level id) errors)))))
       (lint "<test>" (open-string-input-port input) emit))
@@ -167,8 +167,7 @@
       (syntax-case x ()
         ((_ n) #'(+ n 1)))))
   (foo))")
-         ;; FIXME: Should be column 3
-         => '(#("<test>" 9 6 error invalid-syntax))))
+         => '(#("<test>" 9 2 error invalid-syntax))))
 
 ;;; General lexical violations
 
@@ -268,5 +267,43 @@
 ")
          => '()))
 
+;;; Code checks for programs
+
+(letrec ()
+  ;; FIXME: Get more accurate positions.
+  (check (lint-it "(import (rnrs))\n\n(define (foo) #f)\n")
+         => '(#("<test>" 3 0 refactor unused-variable)))
+
+  (check (lint-it "(import (rnrs))\n\n(define (foo x) #f)\n(foo 1)\n")
+         => '(#("<test>" 3 0 refactor unused-variable)))
+
+  (check (lint-it "(import (rnrs))\n\n(guard (exn (else 'error)) 'ok)\n")
+         => '(#("<test>" 3 0 refactor unused-variable))))
+
+;;; Code checks for libraries
+
+(letrec ()
+  (check (lint-it "(library (foo)
+  (export foo)
+  (import (rnrs))
+(define (foo) 1))\n")
+         => '())
+
+  (check (lint-it "(library (foo)
+  (export)
+  (import (rnrs))
+(define (foo _x y _z)
+  (display y)))\n")
+         => '())
+
+  (check (lint-it "(library (foo)
+  (export)
+  (import (rnrs))
+(define (foo x y z)
+  (display y)))\n")
+         ;; FIXME: Get more accurate positions.
+         => '(#("<test>" 4 0 refactor unused-variable)
+              #("<test>" 4 0 refactor unused-variable))))
+
 (check-report)
-(exit (if (check-passed? 37) 0 1))
+(exit (if (check-passed? 43) 0 1))

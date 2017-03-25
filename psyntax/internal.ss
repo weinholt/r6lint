@@ -21,11 +21,14 @@
 
 (library (r6lint psyntax internal)
   (export current-primitive-locations compile-core-expr-to-port expanded->core)
-  (import (rnrs) (r6lint psyntax compat))
+  (import (rnrs)
+          (r6lint psyntax compat)
+          (r6lint psyntax builders)
+          (r6lint psyntax config))
 
   (define current-primitive-locations
     (make-parameter
-      (lambda (x) #f)
+      (lambda _ #f)
       (lambda (p)
         (assert (procedure? p))
         p)))
@@ -40,54 +43,122 @@
     (not (simple? x)))
 
   (define (rewriter quote-hack?)
-    (define (f x)
-      (cond
-        ((pair? x)
-         (case (car x)
-           ((quote)
+    (if-wants-record-exprs
+     (define (f x)
+       (cond
+         ;; The record-based intermediate language, if enabled in the config.
+         ((expr-lexical-reference? x)
+          (expr-lexical-reference-var x))
+         ((expr-lexical-assignment? x)
+          (list 'set! (expr-lexical-assignment-var x)
+                (f (expr-lexical-assignment-exp x))))
+         ((expr-global-reference? x)
+          (if-use-r6rs-eval
+           (list 'hashtable-ref '*GLOBALS* (list 'quote (expr-global-reference-var x))
+                 (f (build-application #f (build-void #f) '())))
+           (expr-global-reference-var x)))
+         ((expr-global-assignment? x)
+          (if-use-r6rs-eval
+           (list 'hashtable-set! '*GLOBALS* (list 'quote (expr-global-assignment-var x))
+                 (f (expr-global-assignment-exp x)))
+           (list 'set! (expr-global-assignment-var x)
+                 (f (expr-global-assignment-exp x)))))
+         ((expr-case-lambda? x)
+          (cons 'case-lambda
+                (map (lambda (vars exp)
+                       (list vars (f exp)))
+                     (expr-case-lambda-vars* x)
+                     (expr-case-lambda-exp* x))))
+         ((expr-conditional? x)
+          (list 'if (f (expr-conditional-test-exp x))
+                (f (expr-conditional-then-exp x))
+                (f (expr-conditional-else-exp x))))
+         ((expr-application? x)
+          (cons (f (expr-application-fun-exp x))
+                (map f (expr-application-arg-exp* x))))
+         ((expr-primref? x)
+          (let ((op (expr-primref-name x)))
             (cond
-              ((and quote-hack? (mutable? (cadr x)))
-               (let ((g (gensym)))
-                 (set-symbol-value! g (cadr x))
-                 g))
-              (else x)))
-           ((case-lambda)
-            (cons 'case-lambda
-              (map
-                (lambda (x)
-                  (cons (car x) (map f (cdr x))))
-                (cdr x))))
-           ((lambda)
-            (cons* 'lambda (cadr x) (map f (cddr x))))
-           ((letrec)
-            (let ((bindings (cadr x)) (body* (cddr x)))
-              (let ((lhs* (map car bindings)) (rhs* (map cadr bindings)))
-                (cons* 'letrec
-                       (map list lhs* (map f rhs*))
-                       (map f body*)))))
-           ((letrec*)
-            (let ((bindings (cadr x)) (body* (cddr x)))
-              (let ((lhs* (map car bindings)) (rhs* (map cadr bindings)))
-                (cons* 'letrec*
-                       (map list lhs* (map f rhs*))
-                       (map f body*)))))
-           ((begin)
-            (cons 'begin (map f (cdr x))))
-           ((set!)
-            (list 'set! (cadr x) (f (caddr x))))
-           ((primitive)
-            (let ((op (cadr x)))
-              (cond
-                (((current-primitive-locations) op) =>
-                 (lambda (loc)
-                   loc))
-                (else op))))
-           ((define) x)
-           (else
-            (if (list? x)
-                (map f x)
-                (error 'rewrite "invalid form ~s ~s" x (list? x))))))
-        (else x)))
+              (((current-primitive-locations) op) =>
+               (lambda (loc)
+                 loc))
+              (else op))))
+         ((expr-data? x)
+          (cond
+            ((and quote-hack? (mutable? (expr-data-exp x)))
+             (let ((g (gensym)))
+               (set-symbol-value! g (expr-data-exp x))
+               (if-use-r6rs-eval
+                (list 'hashtable-ref '*GLOBALS* (list 'quote g)
+                      (f (build-application #f (build-void #f) '())))
+                g)))
+            (else (list 'quote (expr-data-exp x)))))
+         ((expr-sequence? x)
+          (cons 'begin (map f (expr-sequence-exp* x))))
+         ((expr-letrec? x)
+          (let ((lhs* (expr-letrec-var* x))
+                (rhs* (expr-letrec-val-exp* x))
+                (body (expr-letrec-body-exp x)))
+            (list 'letrec
+                  (map list lhs* (map f rhs*))
+                  (f body))))
+         ((expr-letrec*? x)
+          (let ((lhs* (expr-letrec*-var* x))
+                (rhs* (expr-letrec*-val-exp* x))
+                (body (expr-letrec*-body-exp x)))
+            (list 'letrec*
+                  (map list lhs* (map f rhs*))
+                  (f body))))
+         (else
+          (error 'rewrite "invalid form" x))))
+     (define (f x)
+       ;; The non-record language.
+       ((pair? x)
+        (case (car x)
+          ((quote)
+           (cond
+             ((and quote-hack? (mutable? (cadr x)))
+              (let ((g (gensym)))
+                (set-symbol-value! g (cadr x))
+                g))
+             (else x)))
+          ((case-lambda)
+           (cons 'case-lambda
+                 (map
+                  (lambda (x)
+                    (cons (car x) (map f (cdr x))))
+                  (cdr x))))
+          ((lambda)
+           (cons* 'lambda (cadr x) (map f (cddr x))))
+          ((letrec)
+           (let ((bindings (cadr x)) (body* (cddr x)))
+             (let ((lhs* (map car bindings)) (rhs* (map cadr bindings)))
+               (cons* 'letrec
+                      (map list lhs* (map f rhs*))
+                      (map f body*)))))
+          ((letrec*)
+           (let ((bindings (cadr x)) (body* (cddr x)))
+             (let ((lhs* (map car bindings)) (rhs* (map cadr bindings)))
+               (cons* 'letrec*
+                      (map list lhs* (map f rhs*))
+                      (map f body*)))))
+          ((begin)
+           (cons 'begin (map f (cdr x))))
+          ((set!)
+           (list 'set! (cadr x) (f (caddr x))))
+          ((primitive)
+           (let ((op (cadr x)))
+             (cond
+               (((current-primitive-locations) op) =>
+                (lambda (loc)
+                  loc))
+               (else op))))
+          ((define) x)
+          (else
+           (if (list? x)
+               (map f x)
+               (error 'rewrite "invalid form ~s ~s" x (list? x))))))
+       (else x)))
     f)
 
   (define need-quote-hack?

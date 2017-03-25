@@ -23,7 +23,7 @@
 #!r6rs
 
 (library (r6lint lib expander)
-  (export expand-top-level expand-library)
+  (export expand-top-level expand-libraries)
   (import
     (rnrs base)
     (rnrs control)
@@ -1103,24 +1103,22 @@
 
 (define (expand-top-level forms)
   (parameterize ((current-library-collection (copy-collection bootstrap-collection)))
-    (let-values ([(req* exp macro* export-subst export-env)
-                  (top-level-expander forms)])
-      #;
-      (current-primitive-locations (lambda (x) x))
-      (let ([codes '()])
+    (let-values ([(req* exp _macro* _export-subst _export-env) (top-level-expander forms)])
+      ;; Get the expanded code to the caller, including the libraries needed to run it.
+      (let ([name* '()] [code* '()])
         (define serialize
           (let ([ls '()])
             (lambda (lib)
               (unless (memq lib ls)
                 (set! ls (cons lib ls))
                 (for-each serialize (library-invoke-dependencies lib))
-                (let ([p (cons (library-name lib)
-                               (library-invoke-code lib))])
-                  (set! codes (cons p codes)))))))
+                (set! name* (cons (library-name lib) name*))
+                (set! code* (cons (library-invoke-code lib) code*))))))
         (for-each serialize req*)
-        (reverse (cons (cons '*main* exp) codes))))))
+        (values (reverse (cons '*main* name*))
+                (reverse (cons exp code*)))))))
 
-(define (expand-all library-form*)
+(define (expand-all filename library-form*)
   ;;; remove all re-exported identifiers (those with labels in
   ;;; subst but not binding in env).
   (define (prune-subst subst env)
@@ -1130,46 +1128,43 @@
       (else (cons (car subst) (prune-subst (cdr subst) env)))))
   (let-values (((name* code* subst env) (make-init-code)))
     (for-each
-      (lambda (x)
-        (let-values (((name code export-subst export-env)
-                      (boot-library-expand x)))
-          (set! name* (cons name name*))
-          (set! code* (cons code code*))
-          (set! subst (append export-subst subst))
-          (set! env (append export-env env))))
-      library-form*)
-    (let-values (((export-subst export-env export-locs)
+     (lambda (library-form)
+       (let-values (((id name ver imp* vis* inv*
+                         invoke-code visit-code export-subst export-env
+                         guard-code guard-dep*)
+                     ((current-library-expander) library-form filename)))
+         ;; inv* are the names of req* for the top-level...
+         (let ((req* (map find-library-by-name (map cadr inv*))))
+           (define serialize
+             (let ([ls '()])
+               (lambda (lib)
+                 (unless (memq lib ls)
+                   (set! ls (cons lib ls))
+                   (for-each serialize (library-invoke-dependencies lib))
+                   (set! name* (cons (library-name lib) name*))
+                   (set! code* (cons (library-invoke-code lib) code*))))))
+           (set! name* (cons name name*))
+           (set! code* (cons invoke-code code*))
+           (set! subst (append export-subst subst))
+           (set! env (append export-env env))
+           (for-each serialize req*))))
+     library-form*)
+    (let-values (((_export-subst _export-env _export-locs)
                   (make-system-data (prune-subst subst env) env)))
-      (values name* code* export-locs))))
+      (values name* code*))))
 
-(define (expand-library library-form*)
-  (let-values (((name* core* locs)
+;; Expands a list of library forms and returns core code for them and
+;; their dependencies.
+(define (expand-libraries filename library-form*)
+  (let-values (((name* core*)
                 (parameterize ((current-library-collection (copy-collection bootstrap-collection)))
-                  (expand-all library-form*))))
-    #;
-    (current-primitive-locations
-     (lambda (x)
-       (cond
-         ((assq x locs) => cdr)
-         (else #f))))
-    #;
-    (let ((p (current-error-port)))
-      (display "locs: " p)
-      (write locs p)
-      (newline p)
-      (for-each
-       (lambda (name x)
-         (display "expand-library: " p)
-         (display name p) (newline)
-         (write x p)
-         (newline p))
-       name* core*))
+                  (expand-all filename library-form*))))
     (values name* core*)))
 
 (verify-map)
 
 (let ((all-names (map car identifier->library-map))
-      (all-labels (map (lambda (x) (gensym)) identifier->library-map))
+      (all-labels (map (lambda (_) (gensym)) identifier->library-map))
       (all-bindings (map (lambda (x)
                            (cond
                              ((macro-identifier x) => cadr)

@@ -25,7 +25,8 @@
 
 (library (r6lint lib linter)
   (export lint)
-  (import (r6lint lib expander)
+  (import (r6lint lib analyser)
+          (r6lint lib expander)
           (r6lint lib reader)
           (r6lint psyntax library-manager)
           (rnrs (6)))
@@ -39,7 +40,6 @@
       (guard (con (else #f))
         (with-exception-handler
           (lambda (con)
-            ;;(raise con)
             (cond
               ((maybe-translate-condition emit con))
               (else
@@ -87,7 +87,8 @@
     (let ((reader (make-reader port filename)))
       (reader-tolerant-set! reader #t)
       (let ((form (read-annotated reader)))
-        (expand-library (list form))
+        (let-values (((name* core*) (expand-libraries filename (list form))))
+          (analyse-library name* core* emit))
         ;; Check what is after the closing brace of the library form.
         (let lp ((i 0))
           (let ((token (get-token reader)))
@@ -103,14 +104,16 @@
   (define (lint-r6rs-program filename port emit)
     (let* ((forms (read-port port filename))
            (stripped (map annotation-stripped forms)))
-      (cond ((or (null? stripped)
-                 (not (pair? (car stripped)))
-                 (not (eq? (caar stripped) 'import)))
-             (emit filename 1 0 'error 'top-level-import-missing
-                   "Top-level program missing the import form")
-             (expand-top-level `((import (rnrs)) ,@forms)))
-            (else
-             (expand-top-level forms)))))
+      (let-values (((name* core*)
+                    (cond ((or (null? stripped)
+                               (not (pair? (car stripped)))
+                               (not (eq? (caar stripped) 'import)))
+                           (emit filename 1 0 'error 'top-level-import-missing
+                                 "Top-level program missing the import form")
+                           (expand-top-level `((import (rnrs)) ,@forms)))
+                          (else
+                           (expand-top-level forms)))))
+        (analyse-program name* core* emit))))
 
   (define (read-port p filename)
     (let ((reader (make-reader p filename)))
@@ -145,7 +148,7 @@
             (cond
               ((and (close? token) (whitespace? prev) (not (eol-comment? prev-prev)))
                (emit filename (reader-saved-line reader) (reader-saved-column reader)
-                     'convention 'hanging-brace "Parenthesis grow lonely"))
+                     'convention 'hanging-brace "Parentheses grow lonely"))
 
               ((and (open? token)
                     (not (or (whitespace? prev) (open? prev) (abbrev? prev) (eol-comment? prev))))
@@ -169,7 +172,8 @@
                            (or (eq? (char-general-category c0) 'Zs)
                                (memv c0 '(#\tab))))
                   ;; Linefeed with some space before it.
-                  (emit filename line (+ column 1) 'convention 'trailing-whitespace "Trailing whitespace"))
+                  (emit filename line (+ column 1) 'convention
+                        'trailing-whitespace "Trailing whitespace"))
                 (lp c1 line column))))))))
 
   ;; Translate the source-condition. The format of source-character is

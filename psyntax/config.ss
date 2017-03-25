@@ -20,11 +20,10 @@
 ;;; DEALINGS IN THE SOFTWARE.
 
 (library (r6lint psyntax config)
-  (export if-wants-define-record if-wants-define-struct
-          if-wants-case-lambda
+  (export if-wants-case-lambda
           if-wants-letrec* if-wants-global-defines
           if-wants-library-letrec*
-          if-use-r6rs-eval
+          if-use-r6rs-eval if-wants-record-exprs
           base-of-interaction-library)
   (import (rnrs))
 
@@ -40,14 +39,6 @@
        (define-syntax name
          (syntax-rules ()
            ((_ sk fk) fk))))))
-
-  (define-option if-wants-define-record  #f)
-  (define-option if-wants-define-struct  #f)
-  ;;; define-record is an ikarus-specific extension.
-  ;;; should be disabled for all other implementations
-  ;;; the source is included to illustrate how
-  ;;; implementation-specific extensions can be added
-  ;;; to the expander
 
   (define-option if-wants-global-defines #f)
   ;;; If the implementation requires that all global
@@ -80,4 +71,7 @@
   ;;; hashtable *GLOBALS*. This is not meant to be used when
   ;;; the expander is integrated in an implementation, but is
   ;;; useful for running it standalone.
+
+  (define-option if-wants-record-exprs #t)
+  ;;; The code returned from expand will be on record form.
 )

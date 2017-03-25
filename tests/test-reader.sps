@@ -141,7 +141,7 @@
 (letrec ((stripped-read
           (lambda (input)
             (let ((reader (make-reader (open-string-input-port input) "<test>")))
-              (guard (exn
+              (guard (_
                       (else 'error))
                 (annotation-stripped (read-annotated reader)))))))
   (check (stripped-read "#!/usr/bin/env scheme-script\n#f") => '#f)
