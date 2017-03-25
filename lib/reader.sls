@@ -195,7 +195,7 @@
       (let ((c (get-char p)))
         (cond ((eof-object? c)
                (eof-warning p)
-               #\nul)
+               #\xFFFD)
               ((or (char<=? #\0 c #\9)
                    (char-ci<=? #\a c #\f))
                (lp (cons c digits)))
@@ -205,10 +205,10 @@
                         (integer->char sv))
                        (else
                         (reader-warning p "Inline hex escape outside valid range" sv)
-                        #\nul))))
+                        #\xFFFD))))
               (else
                (reader-warning p "Invalid inline hex escape" c)
-               #\nul)))))
+               #\xFFFD)))))
 
   (define (get-identifier p initial-chars)
     (let lp ((chars initial-chars))
@@ -322,7 +322,7 @@
                                ((#\x) (get-inline-hex-escape p))
                                (else
                                 (reader-warning p "Invalid escape in string" c)
-                                #\nul))
+                                #\xFFFD))
                              chars))))))
               (else
                (lp (cons (get-char p) chars)))))))
@@ -463,7 +463,7 @@
                          (let ((char* (reverse char*)))
                            (cond ((null? char*)
                                   (reader-warning p "Empty character name")
-                                  #\nul)
+                                  #\xFFFD)
                                  ((null? (cdr char*)) (car char*))
                                  ((char=? (car char*) #\x)
                                   (cond ((for-all (lambda (c)
@@ -475,11 +475,11 @@
                                                   (integer->char sv))
                                                  (else
                                                   (reader-warning p "Hex-escaped character outside valid range" sv)
-                                                  #\nul))))
+                                                  #\xFFFD))))
                                         (else
                                          (reader-warning p "Invalid character in hex-escaped character"
                                                          (list->string (cdr char*)))
-                                         #\nul)))
+                                         #\xFFFD)))
                                  (else
                                   (let ((char-name (list->string char*))
                                         (char-names '(("nul" . #\nul)
@@ -500,10 +500,10 @@
                                             (assoc (string-foldcase char-name) char-names)) => cdr)
                                       (else
                                        (reader-warning p "Invalid character name" char-name)
-                                       #\nul)))))))
+                                       #\xFFFD)))))))
                         ((and (null? char*) (eof-object? c))
                          (reader-warning p "Unexpected EOF")
-                         #\nul)
+                         #\xFFFD)
                         (else
                          (lp (cons (get-char p) char*)))))))
              (else
