@@ -15,8 +15,8 @@ matrix:
 addons:
   apt:
     packages:
-#       # For Vicare
-#       - libgmp-dev
+      # For Vicare and GNU Guile
+      - libgmp-dev
 #       # Sagittarius
 #       - libgc-dev
 #       - zlib1g-dev
