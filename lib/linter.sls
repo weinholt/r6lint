@@ -37,7 +37,7 @@
   (define (lint filename port emit)
     (let ((emit (emit-filter-repeats emit))
           (filetype (detect-scheme-file-type port)))
-      (guard (con (else #f))
+      (guard (_con (else #f))
         (with-exception-handler
           (lambda (con)
             (cond
@@ -151,7 +151,8 @@
                      'convention 'hanging-brace "Parentheses grow lonely"))
 
               ((and (open? token)
-                    (not (or (whitespace? prev) (open? prev) (abbrev? prev) (eol-comment? prev))))
+                    (not (or (whitespace? prev) (open? prev) (abbrev? prev)
+                             (eol-comment? prev) (eq? prev 'vector))))
                (emit filename (reader-saved-line reader) (reader-saved-column reader)
                      'convention 'no-space-before-paren "No space before parenthesis")))
 

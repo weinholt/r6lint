@@ -265,6 +265,16 @@
     ;; (display 2)
     ))
 ")
+         => '())
+
+  (check (lint-it
+          "(library (foo)
+  (export foos)
+  (import (rnrs))
+
+  (define foos
+    '#(((bool) foo? obj))))
+")
          => '()))
 
 ;;; Code checks for programs
@@ -306,4 +316,4 @@
               #("<test>" 4 0 refactor unused-variable))))
 
 (check-report)
-(exit (if (check-passed? 43) 0 1))
+(exit (if (check-passed? 44) 0 1))
