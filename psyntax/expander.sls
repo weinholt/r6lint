@@ -1161,8 +1161,7 @@
         ((_ e0 e1)
          (build-conditional no-source
            (chi-expr e0 r mr)
-           (chi-expr e1 r mr)
-           (build-void no-source))))))
+           (chi-expr e1 r mr))))))
 
   (define case-macro
     (lambda (e)

@@ -14,11 +14,11 @@ indicate bugs.
 
 ## Setup
 
-Only Chez Scheme is supported at the moment. Set the environment
-variable `CHEZSCHEMELIBDIRS` to include the directory where `r6lint`
-is checked out (i.e `r6lint/..`). To get a better experience you can
-compile the linter's libraries with
-`scheme --compile-imported-libraries --program bin/r6lint`.
+Set your Scheme library path (e.g. `CHEZSCHEMELIBDIRS`) to include the
+directory where `r6lint` is checked out (i.e `r6lint/..`). To get a
+better experience you can compile the linter's libraries. With Chez
+Scheme this can be done with `scheme --compile-imported-libraries
+--program bin/r6lint`.
 
 Support for more Schemes will be forthcoming. They just need an
 `(r6lint psyntax compat)` library.

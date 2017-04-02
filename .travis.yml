@@ -2,7 +2,7 @@ env:
   matrix:
     - SCHEME="ChezScheme_master"
     # - SCHEME="Guile_2.0"
-    # - SCHEME="Guile_2.1"
+    - SCHEME="Guile_2.2"
     # - SCHEME="Larceny"
     # - SCHEME="Racket_6.2"
     # - SCHEME="Racket_HEAD"
@@ -23,8 +23,8 @@ addons:
 #       - libffi-dev
 #       # For Larceny
 #       - libc6:i386
-#       # GNU Guile
-#       - libunistring-dev
+      # GNU Guile
+      - libunistring-dev
       - gcc-4.8
     sources:
       - ubuntu-toolchain-r-test

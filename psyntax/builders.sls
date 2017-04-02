@@ -36,7 +36,8 @@
     expr-global-assignment? expr-global-assignment-source
     expr-global-assignment-var expr-global-assignment-exp
     expr-conditional? expr-conditional-source
-    expr-conditional-test-exp expr-conditional-then-exp expr-conditional-else-exp
+    expr-conditional-one-armed? expr-conditional-test-exp
+    expr-conditional-then-exp expr-conditional-else-exp
     expr-application? expr-application-source
     expr-application-fun-exp expr-application-arg-exp*
     expr-lambda? expr-lambda-source
@@ -64,7 +65,7 @@
   (define-record expr-global-reference (source var))
   (define-record expr-global-assignment (source var exp))
   (define-record expr-application (source fun-exp arg-exp*))
-  (define-record expr-conditional (source test-exp then-exp else-exp))
+  (define-record expr-conditional (source one-armed? test-exp then-exp else-exp))
   (define-record expr-lambda (source vars exp))
   (define-record expr-case-lambda (source vars* exp*))
   (define-record expr-primref (source level name))
@@ -95,8 +96,12 @@
     (syntax-rules ()
       ((_ ae test-exp then-exp else-exp)
        (if-wants-record-exprs
-        (make-expr-conditional (maybe-annotation-source ae) test-exp then-exp else-exp)
-        `(if ,test-exp ,then-exp ,else-exp)))))
+        (make-expr-conditional (maybe-annotation-source ae) #f test-exp then-exp else-exp)
+        `(if ,test-exp ,then-exp ,else-exp)))
+      ((_ ae test-exp then-exp)
+       (if-wants-record-exprs
+        (make-expr-conditional (maybe-annotation-source ae) #t test-exp then-exp #f)
+        `(if ,test-exp ,then-exp)))))
 
   (define-syntax build-lexical-reference
     (syntax-rules ()
@@ -210,16 +215,22 @@
       (let loop ((exps exps))
         (if (null? (cdr exps))
             (car exps)
-            (if (and (expr-primref? (car exps))
-                     (eq? (expr-primref-name (car exps)) 'void))
+            (if (void? (car exps))
                 (loop (cdr exps))
                 (if-wants-record-exprs
                  (make-expr-sequence (maybe-annotation-source ae) exps)
                  `(begin ,@exps)))))))
 
+  (define (void? e)
+    (and (expr-conditional? e)
+         (expr-conditional-one-armed? e)
+         (let ((test (expr-conditional-test-exp e)))
+           (and (expr-data? test)
+                (not (expr-data-exp test))))))
+
   (define build-void
     (lambda (ae)
-      (build-primref ae 'void)))
+      (build-conditional ae (build-data ae #f) (build-data ae #f))))
 
   (define build-letrec
     (lambda (ae vars val-exps body-exp)

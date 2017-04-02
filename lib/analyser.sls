@@ -26,37 +26,42 @@
 (library (r6lint lib analyser)
   (export analyse-program analyse-library)
   (import (r6lint psyntax builders)
+          (r6lint psyntax internal)
           (only (r6lint lib reader) annotation-source->condition source-filename
                 source-line source-column)
+          (r6lint psyntax gensym)
           (rnrs (6)))
 
   (define *DEBUG* #f)
 
-  (define (analyse-program name* core* emit)
-    (analyse name* core* #f emit))
+  (define (analyse-program name* code* emit)
+    (analyse name* code* #f emit))
 
-  (define (analyse-library name* core* emit)
-    (analyse name* core* #t emit))
+  (define (analyse-library name* code* emit)
+    (analyse name* code* #t emit))
 
-  (define (analyse name* core* library? emit)
+  (define (analyse name* code* library? emit)
     (let lp ((name* name*)
-             (core* core*))
+             (code* code*))
       (unless (null? name*)
         (let ((name (car name*))
-              (core (car core*)))
-          (let ((code (code->records core)))
+              (code (car code*)))
+          (when *DEBUG*
+            (display name)
+            (display ":\n")
+            (write code)
+            (newline)
+            (write (expanded->core code))
+            (newline))
+          (let ((rec (code->records code)))
             (when *DEBUG*
-              (display name)
-              (display ":\n")
-              (write core)
-              (newline)
-              (write code)
+              (write rec)
               (newline))
             ;; Only emit warnings for the last code. That's the file
             ;; being checked.
-            (when (null? (cdr core*))
-              (check-unused-variables code library? emit)))
-          (lp (cdr name*) (cdr core*))))))
+            (when (null? (cdr code*))
+              (check-unused-variables rec library? emit)))
+          (lp (cdr name*) (cdr code*))))))
 
 ;;; Records for all expressions
 
@@ -186,7 +191,9 @@
          (make-test (expr-conditional-source code)
                     (pass (expr-conditional-test-exp code) name #f)
                     (pass (expr-conditional-then-exp code) name tail?)
-                    (pass (expr-conditional-else-exp code) name tail?)))
+                    (if (expr-conditional-one-armed? code)
+                        (make-primref (expr-conditional-source code) 'void)
+                        (pass (expr-conditional-else-exp code) name tail?))))
         ((expr-primref? code)
          (make-primref (expr-primref-source code) (expr-primref-name code)))
         ((expr-data? code)
@@ -340,6 +347,4 @@
     (pass1 code))
 
   (define (variable->string var)
-    (call-with-string-output-port
-      (lambda (p)
-        (write (string->symbol (symbol->string (variable-name var))) p)))))
+    (gensym-name (variable-name var))))

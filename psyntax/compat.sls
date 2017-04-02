@@ -20,25 +20,24 @@
 ;;; DEALINGS IN THE SOFTWARE.
 
 (library (r6lint psyntax compat)
-  (export make-parameter parameterize define-record pretty-print
-          gensym void eval-core symbol-value set-symbol-value!
+  (export make-parameter parameterize define-record
+          gensym eval-core symbol-value set-symbol-value!
           make-file-options read-library-source-file
           annotation? annotation-expression annotation-stripped
           make-reader read-annotated annotation-source annotation-source->condition
           library-version-mismatch-warning
           library-stale-warning
           file-locator-resolution-error
-          label-binding set-label-binding! remove-location *GLOBALS*)
+          label-binding set-label-binding! remove-location)
   (import
+    (only (r6lint psyntax gensym) gensym)
     (only (r6lint lib reader)
           make-reader
           read-annotated annotation? annotation-expression
           annotation-stripped annotation-source
           annotation-source->condition)
     (rnrs)
-    (only (psyntax system $bootstrap)
-          void gensym eval-core set-symbol-value! symbol-value
-          pretty-print))
+    (prefix (rnrs eval) rnrs:))
 
   (define (map-in-order f x*)
     (if (null? x*)
@@ -46,26 +45,68 @@
         (cons (f (car x*))
               (map-in-order f (cdr x*)))))
 
+  ;; XXX: Should probably possibly be parameters
   (define *GLOBALS* (make-eq-hashtable))
+  (define *LABELS* (make-eq-hashtable))
 
   (define (label-binding x)
-    (hashtable-ref *GLOBALS* x #f))
+    (hashtable-ref *LABELS* x #f))
 
   (define (set-label-binding! x v)
-    (hashtable-set! *GLOBALS* x v))
+    (hashtable-set! *LABELS* x v))
 
   (define (remove-location x)
-    (hashtable-delete! *GLOBALS* x))
+    (hashtable-delete! *LABELS* x))
 
-  ;; (define (annotation? x) #f)
-  ;; (define (annotation-source x) #f)
-  ;; (define (annotation-expression x) x)
-  ;; (define (annotation-stripped x) x)
-  ;; (define read-annotated read)
+  (define (set-symbol-value! x v)
+    (hashtable-set! *GLOBALS* x v))
 
-  (define read-library-source-file
-    (lambda (file-name)
-      (with-input-from-file file-name read)))
+  (define (symbol-value x)
+    (unless (hashtable-contains? *GLOBALS* x)
+      (error 'symbol-value "Undefined symbol" x))
+    (hashtable-ref *GLOBALS* x #f))
+
+  ;; This is used to run code during expansion.
+  (define eval-core
+    (let ((env #f))
+      (lambda (expr)
+        (unless env
+          (set! env (rnrs:environment
+                     '(except (rnrs)
+                              identifier? generate-temporaries free-identifier=?
+                              bound-identifier=? datum->syntax syntax-violation
+                              syntax->datum make-variable-transformer
+                              ;; Not safe -- if you need to access files
+                              ;; from your macros, please figure something
+                              ;; out. Maybe make filtering versions of these
+                              ;; procedures.
+                              open-output-file with-output-to-file
+                              call-with-output-file open-file-input/output-port
+                              open-file-output-port delete-file)
+                     '(rnrs r5rs)
+                     ;; Not safe and it's not very common to call eval from macros.
+                     ;; '(rnrs eval)
+                     '(rnrs mutable-pairs)
+                     '(rnrs mutable-strings)
+                     ;; We're importing ourselves here, which is why
+                     ;; the call to environment is delayed. Without
+                     ;; this GNU Guile will try to use a half-finished
+                     ;; version of this library.
+                     '(only (r6lint psyntax expander)
+                            identifier? generate-temporaries free-identifier=?
+                            bound-identifier=? datum->syntax syntax-violation
+                            syntax->datum make-variable-transformer
+                            syntax-dispatch syntax-error ellipsis-map)
+                     '(only (r6lint psyntax compat)
+                            make-file-options gensym
+                            symbol-value set-symbol-value!))))
+        (rnrs:eval expr env))))
+
+  (define (read-library-source-file file-name)
+    (call-with-port (open-input-file file-name)
+      (lambda (p)
+        (let ((reader (make-reader p file-name)))
+          (read-annotated reader)))))
 
   (define make-parameter
     (case-lambda
@@ -85,17 +126,17 @@
          (with-syntax (((lhs* ...) (generate-temporaries (syntax (olhs* ...))))
                        ((rhs* ...) (generate-temporaries (syntax (olhs* ...)))))
            (syntax (let ((lhs* olhs*) ...
-                   (rhs* orhs*) ...)
-               (let ((swap
-                      (lambda ()
-                        (let ((t (lhs*)))
-                          (lhs* rhs*)
-                          (set! rhs* t))
-                        ...)))
-                 (dynamic-wind
-                   swap
-                   (lambda () b b* ...)
-                   swap)))))))))
+                         (rhs* orhs*) ...)
+                     (let ((swap
+                            (lambda ()
+                              (let ((t (lhs*)))
+                                (lhs* rhs*)
+                                (set! rhs* t))
+                              ...)))
+                       (dynamic-wind
+                         swap
+                         (lambda () b b* ...)
+                         swap)))))))))
 
 
   (define (library-version-mismatch-warning name depname filename)
@@ -143,81 +184,38 @@
   ;;;           (nongenerative) ; for sanity
   ;;;           (fields field* ...)))))
 
-
+  ;; borrowed from mosh
   (define-syntax define-record
-    (lambda (stx)
-      (define (iota i j)
-        (cond
-          ((= i j) '())
-          (else (cons i (iota (+ i 1) j)))))
-      (syntax-case stx ()
-        ((_ name (field* ...) printer)
-         (syntax (define-record name (field* ...))))
-        ((_ name (field* ...))
-         (with-syntax ((constructor
-                        (datum->syntax (syntax name)
-                          (string->symbol
-                            (string-append "make-"
-                              (symbol->string
-                                (syntax->datum (syntax name)))))))
-                       (predicate
-                        (datum->syntax (syntax name)
-                          (string->symbol
-                            (string-append
-                              (symbol->string
-                                (syntax->datum (syntax name)))
-                              "?"))))
-                       (<rtd>
-                        (datum->syntax (syntax name) (gensym)))
-                       ((accessor ...)
-                        (map
-                          (lambda (x)
-                            (datum->syntax (syntax name)
-                              (string->symbol
-                                (string-append
-                                  (symbol->string (syntax->datum
-                                                    (syntax name)))
-                                  "-"
-                                  (symbol->string (syntax->datum x))))))
-                          (syntax (field* ...))))
-                       ((mutator ...)
-                        (map
-                          (lambda (x)
-                            (datum->syntax (syntax name)
-                              (string->symbol
-                                (string-append "set-"
-                                  (symbol->string (syntax->datum
-                                                    (syntax name)))
-                                  "-"
-                                  (symbol->string (syntax->datum x))
-                                  "!"))))
-                          (syntax (field* ...))))
-                       ((idx ...)
-                        (iota 1 (+ 1 (length (syntax (field* ...)))))))
-           (syntax (begin
-               (define constructor
-                 (lambda (field* ...)
-                   (vector '<rtd> field* ...)))
-               (define predicate
-                 (lambda (x)
-                   (and (vector? x)
-                        (= (vector-length x)
-                           (+ 1 (length '(field* ...))))
-                        (eq? (vector-ref x 0) '<rtd>))))
-               (define accessor
-                 (lambda (x)
-                   (if (predicate x)
-                       (vector-ref x idx)
-                       (error 'accessor "~s is not of type ~s" x
-                              'name))))
-               ...
-               (define mutator
-                 (lambda (x v)
-                   (if (predicate x)
-                       (vector-set! x idx v)
-                       (error 'mutator "~s is not of type ~s" x
-                              'name))))
-               ...)))))))
+    (lambda (x)
+      (define (syn->str s)
+        (symbol->string
+         (syntax->datum s)))
+      (define (gen-getter id)
+        (lambda (fld)
+          (datum->syntax id
+                         (string->symbol
+                          (string-append (syn->str id) "-" (syn->str fld))))))
+      (define (gen-setter id)
+        (lambda (fld)
+          (datum->syntax id
+                         (string->symbol
+                          (string-append "set-" (syn->str id) "-" (syn->str fld) "!")))))
+      (syntax-case x ()
+        [(_ name (field* ...) printer)
+         #`(begin
+             (define-record name (field* ...))
+             #;
+             (define rp (make-record-printer 'name printer)))]
+        [(_ name (field* ...))
+         (with-syntax ([(getter* ...)
+                        (map (gen-getter #'name) #'(field* ...))]
+                       [(setter* ...)
+                        (map (gen-setter #'name) #'(field* ...))])
+           #`(define-record-type name
+               (sealed #t) ; for better performance
+               (opaque #f)
+               (nongenerative) ; for sanity
+               (fields (mutable field* getter* setter*) ...)))])))
 
   (define file-options-set (make-enumeration '(no-create no-fail no-truncate)))
   (define make-file-options (enum-set-constructor file-options-set)))
