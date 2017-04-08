@@ -91,7 +91,7 @@
 
   (define-record-type variable          ;variable
     (parent expr)
-    (fields name export-name (mutable referenced?) (mutable mutated?) global?)
+    (fields name export-name (mutable referenced?) (mutable mutated?))
     (nongenerative) (sealed #t))
 
   (define-record-type ref               ;variable reference
@@ -134,11 +134,29 @@
   (define (maybe-expr-location expr)
     (and (expr? expr) (expr-location expr)))
 
+  (define (code-source code)
+    (cond
+      ((expr-lexical-reference? code) (expr-lexical-reference-source code))
+      ((expr-lexical-assignment? code) (expr-lexical-assignment-source code))
+      ((expr-global-reference? code) (expr-global-reference-source code))
+      ((expr-global-assignment? code) (expr-global-assignment-source code))
+      ((expr-case-lambda? code) (expr-case-lambda-source code))
+      ((expr-application? code) (expr-application-source code))
+      ((expr-conditional? code) (expr-conditional-source code))
+      ((expr-primref? code) (expr-primref-source code))
+      ((expr-data? code) (expr-data-source code))
+      ((expr-sequence? code) (expr-sequence-source code))
+      ((expr-letrec? code) (expr-letrec-source code))
+      ((expr-letrec*? code) (expr-letrec*-source code))
+      ((expr-library-letrec*? code) (expr-library-letrec*-source code))
+      (else
+       (error 'code-source "Unknown code" code))))
+
   (define (code->records code)
     (define vars (make-eq-hashtable))
-    (define (make-var location name global?)
+    (define (make-var location name export-name)
       (or (hashtable-ref vars name #f)
-          (let ((ret (make-variable location name #f #f #f global?)))
+          (let ((ret (make-variable location name export-name #f #f)))
             (hashtable-set! vars name ret)
             ret)))
     (define (formals->list x)
@@ -151,18 +169,19 @@
          (let ((source (expr-lexical-reference-source code)))
            (make-ref source (make-var source (expr-lexical-reference-var code) #f))))
         ((expr-lexical-assignment? code)
-         (let ((source (expr-lexical-assignment-source code)))
-           (make-mutate source (make-var source (expr-lexical-assignment-var code) #f)
+         (let* ((source (expr-lexical-assignment-source code))
+                (var (make-var source (expr-lexical-assignment-var code) #f)))
+           (make-mutate source var
                         (pass (expr-lexical-assignment-exp code)
                               (expr-lexical-assignment-var code)
                               #f))))
         ((expr-global-reference? code)
          (let ((source (expr-global-reference-source code)))
-           (make-ref source (make-var source (expr-global-reference-var code) #t))))
+           (make-ref source (make-var source (expr-global-reference-var code) #f))))
         ((expr-global-assignment? code)
-         ;; XXX: exported? Use library-letrec* instead.
-         (let ((source (expr-global-assignment-source code)))
-           (make-mutate source (make-var source (expr-global-assignment-var code) #t)
+         (let* ((source (expr-global-assignment-source code))
+                (var (make-var source (expr-global-assignment-var code) #f)))
+           (make-mutate source var
                         (pass (expr-global-assignment-exp code)
                               (expr-global-assignment-var code)
                               #f))))
@@ -172,12 +191,11 @@
                 (source (expr-case-lambda-source code)))
            (make-proc source
                       (map (lambda (formals body)
-                             (make-proccase source
-                                            (map (lambda (lhs)
-                                                   (make-var source lhs #f))
-                                                 (formals->list formals))
-                                            (list? formals)
-                                            (pass body name 'tail)))
+                             (let ((var* (map (lambda (lhs)
+                                                (make-var source lhs #f))
+                                              (formals->list formals))))
+                               (make-proccase source var* (list? formals)
+                                              (pass body name 'tail))))
                            formals* body*)
                       name)))
         ((expr-application? code)
@@ -208,27 +226,44 @@
          (let ((lhs* (expr-letrec-var* code))
                (rhs* (expr-letrec-val-exp* code))
                (body (expr-letrec-body-exp code)))
-           (let ((rhs* (map (lambda (lhs rhs)
-                              (pass rhs lhs #f))
-                            lhs* rhs*)))
+           (let* ((var* (map (lambda (lhs rhs)
+                               (make-var (code-source rhs) lhs #f))
+                             lhs* rhs*))
+                  (rhs* (map (lambda (lhs rhs)
+                               (pass rhs lhs #f))
+                             lhs* rhs*)))
              (make-rec (expr-letrec-source code)
-                       (map (lambda (lhs rhs)
-                              (make-var (maybe-expr-location rhs) lhs #f))
-                            lhs* rhs*)
-                       rhs*
+                       var* rhs*
                        (pass body name tail?)))))
         ((expr-letrec*? code)
          (let ((lhs* (expr-letrec*-var* code))
                (rhs* (expr-letrec*-val-exp* code))
                (body (expr-letrec*-body-exp code)))
-           (let ((rhs* (map (lambda (lhs rhs)
+           (let* ((var* (map (lambda (lhs rhs)
+                               (make-var (code-source rhs) lhs #f))
+                             lhs* rhs*))
+                  (rhs* (map (lambda (lhs rhs)
                               (pass rhs lhs #f))
                             lhs* rhs*)))
              (make-rec* (expr-letrec*-source code)
-                        (map (lambda (lhs rhs)
-                               (make-var (maybe-expr-location rhs) lhs #f))
-                             lhs* rhs*)
-                        rhs*
+                        var* rhs*
+                        (pass body name tail?)))))
+        ((expr-library-letrec*? code)
+         (let ((lhs* (expr-library-letrec*-var* code))
+               (loc* (expr-library-letrec*-loc* code))
+               (rhs* (expr-library-letrec*-val-exp* code))
+               (body (expr-library-letrec*-body-exp code)))
+           (let* ((var* (map
+                         (lambda (lhs loc rhs)
+                           (make-var (code-source rhs) lhs
+                                     (and (not (expr-library-letrec*-mix? code))
+                                          loc)))
+                         lhs* loc* rhs*))
+                  (rhs* (map (lambda (lhs rhs)
+                               (pass rhs lhs #f))
+                             lhs* rhs*)))
+             (make-rec* (expr-library-letrec*-source code)
+                        var* rhs*
                         (pass body name tail?)))))
         (else
          (error 'code->records "Unknown code" code))))
@@ -297,7 +332,7 @@
          ;; Emit warnings for unused variables. XXX: For now global
          ;; variables are assumed to be possibly used.
          (when (and (not (variable-referenced? code))
-                    (not (variable-global? code)))
+                    (not (variable-export-name code)))
            (unless (let ((name (variable->string code)))
                      ;; Ignore the dummy variable psyntax adds to the
                      ;; end of letrec* in top-level programs.

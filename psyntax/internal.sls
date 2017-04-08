@@ -110,6 +110,22 @@
             (list 'letrec*
                   (map list lhs* (map f rhs*))
                   (f body))))
+         ((expr-library-letrec*? x)
+          (let ((lhs* (expr-library-letrec*-var* x))
+                (loc* (expr-library-letrec*-loc* x))
+                (rhs* (expr-library-letrec*-val-exp* x))
+                (body (expr-library-letrec*-body-exp x)))
+            (list 'letrec*
+                  (map list lhs* (map f rhs*))
+                  (if (expr-library-letrec*-mix? x)
+                      (f body)
+                      (cons 'begin
+                            (cons (f body)
+                                  (map (lambda (var loc)
+                                         (list 'set-symbol-value!
+                                               (list 'quote loc)
+                                               var))
+                                       lhs* loc*)))))))
          (else
           (error 'rewrite "invalid form" x))))
      (define (f x)

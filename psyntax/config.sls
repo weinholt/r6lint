@@ -62,7 +62,7 @@
   ;;; (letrec* ((lhs* rhs*) ...) body) into
   ;;; (let ((lhs* #f) ...) (set! lhs* rhs*) ... body)
 
-  (define-option if-wants-library-letrec* #f)
+  (define-option if-wants-library-letrec* #t)
 
   (define-option if-use-r6rs-eval         #t)
   ;;; R6RS Schemes without special compat support for a
