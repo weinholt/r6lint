@@ -60,7 +60,8 @@
             ;; Only emit warnings for the last code. That's the file
             ;; being checked.
             (when (null? (cdr code*))
-              (check-unused-variables rec library? emit)))
+              (check-unused-variables rec library? emit)
+              (check-misused-equality rec emit)))
           (lp (cdr name*) (cdr code*))))))
 
 ;;; Records for all expressions
@@ -329,8 +330,7 @@
     (define (pass1 code)
       (cond
         ((variable? code)
-         ;; Emit warnings for unused variables. XXX: For now global
-         ;; variables are assumed to be possibly used.
+         ;; Emit warnings for unused variables.
          (when (and (not (variable-referenced? code))
                     (not (variable-export-name code)))
            (unless (let ((name (variable->string code)))
@@ -382,4 +382,104 @@
     (pass1 code))
 
   (define (variable->string var)
-    (gensym-name (variable-name var))))
+    (gensym-name (variable-name var)))
+
+;;; Check for misused equality predicates
+
+  ;; This checks for calls to eq?/eqv? with arguments that aren't
+  ;; usually comparable with those predicates. This is a very naïve
+  ;; analysis, of course, doesn't find anything but the obvious bad
+  ;; calls. You gotta start somewhere.
+
+  (define-syntax define-walker
+    (lambda (x)
+      (syntax-case x ()
+        ((_ (pass code) (test body ...) ...)
+         #'(define (pass code)
+             (cond
+               (test body ...) ...
+               ((variable? code)
+                (values))
+               ((ref? code)
+                (pass (ref-name code)))
+               ((mutate? code)
+                (pass (mutate-name code))
+                (pass (mutate-expr code)))
+               ((test? code)
+                (pass (test-expr code))
+                (pass (test-then code))
+                (pass (test-else code)))
+               ((const? code)
+                (values))
+               ((primref? code)
+                (values))
+               ((seq? code)
+                (pass (seq-e0 code))
+                (pass (seq-e1 code)))
+               ((rec? code)
+                (for-each pass (rec-lhs* code))
+                (for-each pass (rec-rhs* code))
+                (pass (rec-body code)))
+               ((rec*? code)
+                (for-each pass (rec*-lhs* code))
+                (for-each pass (rec*-rhs* code))
+                (pass (rec*-body code)))
+               ((proc? code)
+                (for-each
+                 (lambda (c)
+                   (for-each pass (proccase-formals c))
+                   (pass (proccase-body c)))
+                 (proc-case* code)))
+               ((funcall? code)
+                (pass (funcall-operator code))
+                (for-each pass (funcall-operand* code)))
+               (else
+                (error 'pass "Unknown expression" code))))))))
+
+  (define (check-misused-equality code emit)
+    (define (arg-not-comparable-with-eqv? arg)
+      (or (and (const? arg) (not-comparable-with-eqv? (const-value arg)))
+          (proc? arg)))
+    (define (not-comparable-with-eqv? obj)
+      (or (pair? obj) (vector? obj) (string? obj) (bytevector? obj)
+          (and (number? obj) (nan? obj))))
+    (define (arg-not-comparable-with-eq? arg)
+      (and (const? arg) (not-comparable-with-eq? (const-value arg))))
+    (define (not-comparable-with-eq? obj)
+      (or (not-comparable-with-eqv? obj) (number? obj) (char? obj)))
+    (define (maybe-get-list arg)
+      ;; If the argument is a list, then try to get the list elements.
+      (cond ((and (const? arg) (list? (const-value arg)))
+             (const-value arg))
+            ((and (funcall? arg)
+                  (primref? (funcall-operator arg))
+                  (eq? (primref-name (funcall-operator arg)) 'list))
+             (funcall-operand* arg))
+            (else '())))
+    (define-walker (check-misused-equality code)
+      ((funcall? code)
+       (let ((op (funcall-operator code))
+             (arg* (funcall-operand* code)))
+         (when (and (primref? op) (eq? (primref-name op) 'eq?)
+                    (exists arg-not-comparable-with-eq? arg*))
+           (expr-emit emit code 'warning 'bad-eq-argument
+                      "Uncomparable arguments to eq?"))
+         (when (and (primref? op) (eq? (primref-name op) 'eqv?)
+                    (exists arg-not-comparable-with-eqv? arg*))
+           (expr-emit emit code 'warning 'bad-eqv-argument
+                      "Uncomparable arguments to eqv?"))
+         (when (and (primref? op) (eq? (primref-name op) 'memq)
+                    (= (length arg*) 2)
+                    (or (arg-not-comparable-with-eq? (car arg*))
+                        (exists not-comparable-with-eqv? (maybe-get-list (cadr arg*)))))
+           (expr-emit emit code 'warning 'bad-memq-argument
+                      (string-append "Uncomparable arguments to memq")))
+         (when (and (primref? op) (eq? (primref-name op) 'memv)
+                    (= (length arg*) 2)
+                    (or (arg-not-comparable-with-eqv? (car arg*))
+                        (exists not-comparable-with-eqv? (maybe-get-list (cadr arg*)))))
+           (expr-emit emit code 'warning 'bad-memv-argument
+                      (string-append "Uncomparable arguments to memv"))))
+       (check-misused-equality (funcall-operator code))
+       (for-each check-misused-equality (funcall-operand* code))))
+    (check-misused-equality code)))

@@ -80,6 +80,11 @@
          => '())
   (check (lint-it '(library (foo)
                      (export)
+                     (import)
+                     #vu8()))
+         => '())
+  (check (lint-it '(library (foo)
+                     (export)
                      (import (rnrs))))
          => '())
   (check (lint-it '(library (foo)
@@ -288,7 +293,34 @@
          => '(#("<test>" 3 0 refactor unused-variable)))
 
   (check (lint-it "(import (rnrs))\n\n(guard (exn (else 'error)) 'ok)\n")
-         => '(#("<test>" 3 0 refactor unused-variable))))
+         => '(#("<test>" 3 0 refactor unused-variable)))
+
+  (check (lint-it "(import (rnrs))\n\n(define (is-zero? y) (eq? y 0))\n(is-zero? 0)\n")
+         => '(#("<test>" 3 21 warning bad-eq-argument)))
+
+  (check (lint-it "(import (rnrs))\n\n(define (is-zero? y) (eqv? y \"zero\"))\n(is-zero? 0)\n")
+         => '(#("<test>" 3 21 warning bad-eqv-argument)))
+
+  (check (lint-it "(import (rnrs))\n\n(case 1 ((\"list\") 'list) (else #f))\n")
+         => '(#("<test>" 3 0 warning bad-eqv-argument)))
+
+  (check (lint-it "(import (rnrs))\n\n(case 1 ((\"1\" \"one\") 1) (else #f))\n")
+         => '(#("<test>" 3 0 warning bad-memv-argument)))
+
+  (check (lint-it "(import (rnrs))\n\n(memq 1 (list 1 2))\n")
+         => '(#("<test>" 3 0 warning bad-memq-argument)))
+
+  (check (lint-it "(import (rnrs))\n\n(memv \"x\" (list \"x\" \"y\"))\n")
+         => '(#("<test>" 3 0 warning bad-memv-argument)))
+
+  (check (lint-it "(import (rnrs))\n\n(eqv? (lambda (x) x) (lambda (x) x))\n")
+         => '(#("<test>" 3 0 warning bad-eqv-argument)))
+
+  (check (lint-it "(import (rnrs))\n\n(eqv? +nan.0 +nan.0)\n")
+         => '(#("<test>" 3 0 warning bad-eqv-argument)))
+
+  (check (lint-it "(import (rnrs))\n\n(eq? #\\a #\\a)\n")
+         => '(#("<test>" 3 0 warning bad-eq-argument))))
 
 ;;; Code checks for libraries
 
@@ -316,4 +348,4 @@
               #("<test>" 4 0 refactor unused-variable))))
 
 (check-report)
-(exit (if (check-passed? 44) 0 1))
+(exit (if (check-passed? 54) 0 1))
