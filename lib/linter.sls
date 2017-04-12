@@ -203,7 +203,10 @@
             (string=? (condition-message con) "cannot find library"))
        (emit-with-source emit con 'fatal 'library-not-found
                          (string-append "Library not found: "
-                                        (->string (car (condition-irritants con))))))
+                                        (->string (car (condition-irritants con)))))
+       (emit-with-source emit con 'fatal 'library-not-found
+                         (string-append "Searched: "
+                                        (->string (cadr (condition-irritants con))))))
 
       ((and (who-condition? con) (message-condition? con)
             (string=? (condition-message con) "unbound identifier"))

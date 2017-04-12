@@ -157,7 +157,7 @@
 
   (define (file-locator-resolution-error libname failed-list pending-list)
     ;;; please override this in your production implementation
-    (error 'file-location "cannot find library" libname))
+    (error 'file-location "cannot find library" libname failed-list pending-list))
 
   ;;; we represent records as vectors for portability but this is
   ;;; not nice.  If your system supports compile-time generative
