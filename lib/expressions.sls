@@ -24,7 +24,7 @@
 ;; Records for all expressions
 
 (library (r6lint lib expressions)
-  (export code->records
+  (export code->records records->core
           expr? expr-location
           primref? make-primref primref-name
           const? make-const const-value
@@ -35,6 +35,7 @@
           variable-mutated? variable-mutated?-set!
           ref? make-ref ref-name
           mutate? make-mutate mutate-name mutate-expr
+          bind? make-bind bind-lhs* bind-rhs* bind-body
           rec? make-rec rec-lhs* rec-rhs* rec-body
           rec*? make-rec* rec*-lhs* rec*-rhs* rec*-body
           proc? make-proc proc-case* proc-name
@@ -80,6 +81,11 @@
   (define-record-type mutate            ;set!
     (parent expr)
     (fields name expr)
+    (nongenerative) (sealed #t))
+
+  (define-record-type bind              ;let
+    (parent expr)
+    (fields lhs* rhs* body)
     (nongenerative) (sealed #t))
 
   (define-record-type rec               ;letrec
@@ -130,6 +136,51 @@
       (else
        (error 'code-source "Unknown code" code))))
 
+  (define (records->core x)
+    (define (f x)
+      (cond ((const? x)
+             (const-value x))
+            ((variable? x)
+             (variable-name x))
+            ((primref? x)
+             (primref-name x))
+            ((ref? x)
+             (f (ref-name x)))
+            ((mutate? x)
+             `(set! ,(f (mutate-name x)) ,(f (mutate-expr x))))
+            ((funcall? x)
+             `(,(f (funcall-operator x))
+               ,@(map f (funcall-operand* x))))
+            ((proc? x)
+             (letrec ((get-formals (lambda (c)
+                                     (let ((formals (map f (proccase-formals c))))
+                                       (if (proccase-proper? c)
+                                           formals
+                                           (apply cons* formals))))))
+               (if (null? (cdr (proc-case* x)))
+                   (let ((c (car (proc-case* x))))
+                     `(lambda ,(get-formals c) ,(f (proccase-body c))))
+                   `(case-lambda
+                      ,@(map (lambda (c)
+                               (list (get-formals c) (f (proccase-body c))))
+                             (proc-case* x))))))
+            ((test? x)
+             `(if ,(f (test-expr x)) ,(f (test-then x)) ,(f (test-else x))))
+            ((seq? x)
+             `(begin ,(f (seq-e0 x)) ,(f (seq-e1 x))))
+            ((bind? x)
+             `(let ,(map list (map f (bind-lhs* x)) (map f (bind-rhs* x)))
+                ,(f (bind-body x))))
+            ((rec? x)
+             `(letrec ,(map list (map f (rec-lhs* x)) (map f (rec-rhs* x)))
+                ,(f (rec-body x))))
+            ((rec*? x)
+             `(letrec* ,(map list (map f (rec*-lhs* x)) (map f (rec*-rhs* x)))
+                ,(f (rec*-body x))))
+            (else
+             (error 'records->core "Unknown expression" x))))
+    (f x))
+
   (define (code->records code)
     (define vars (make-eq-hashtable))
     (define (make-var location name export-name)
@@ -164,9 +215,9 @@
                               (expr-global-assignment-var code)
                               #f))))
         ((expr-case-lambda? code)
-         (let* ((formals* (expr-case-lambda-vars* code))
-                (body* (expr-case-lambda-exp* code))
-                (source (expr-case-lambda-source code)))
+         (let ((formals* (expr-case-lambda-vars* code))
+               (body* (expr-case-lambda-exp* code))
+               (source (expr-case-lambda-source code)))
            (make-proc source
                       (map (lambda (formals body)
                              (let ((var* (map (lambda (lhs)

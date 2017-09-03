@@ -347,5 +347,28 @@
          => '(#("<test>" 4 0 refactor unused-variable)
               #("<test>" 4 0 refactor unused-variable))))
 
+;;; Side-effects of the let recovery pass
+
+(letrec ()
+  (check (lint-it "(import (rnrs))\n\n((lambda (x) x))\n")
+         => '(#("<test>" 3 0 error wrong-arguments)))
+
+  (check (lint-it "(import (rnrs))\n\n((case-lambda ((x . y) x)))\n")
+         => '(#("<test>" 3 0 error wrong-arguments)))
+
+  (check (lint-it "(import (rnrs))\n\n((case-lambda (x x)))\n")
+         => '())
+
+  (check (lint-it "(import (rnrs))\n\n((case-lambda ((x . y) (cons x y))) 'x)\n")
+         => '())
+
+  (check (lint-it "(import (rnrs))\n\n((case-lambda ((x . y) (cons x y))) 'x 'y)\n")
+         => '())
+
+  (check (lint-it "(import (rnrs))\n\n((case-lambda (x x) (() #f)))\n")
+         ;; FIXME: more accurate position
+         => '(#("<test>" 3 1 refactor unreachable-code))))
+
+
 (check-report)
-(exit (if (check-passed? 54) 0 1))
+(exit (if (check-passed? 60) 0 1))

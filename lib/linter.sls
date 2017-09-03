@@ -46,9 +46,14 @@
                (unless *DEBUG*
                  (print-condition con (current-error-port)))
                (emit filename 1 0 'fatal 'internal-error "Error while linting the file")
-               (for-each (lambda (condition)
-                           (emit filename 1 0 'error 'internal-error condition))
-                         (simple-conditions con))))
+               (let ((p (open-string-input-port
+                         (call-with-string-output-port
+                           (lambda (p) (print-condition con p))))))
+                 (let lp ()
+                   (unless (port-eof? p)
+                     (let ((line (get-line p)))
+                       (emit filename 1 0 'error 'internal-error line)
+                       (lp)))))))
             (unless (warning? con)
               (raise con)))
           (lambda ()
@@ -87,8 +92,8 @@
     (let ((reader (make-reader port filename)))
       (reader-tolerant-set! reader #t)
       (let ((form (read-annotated reader)))
-        (let-values (((name* core*) (expand-libraries filename (list form))))
-          (analyse-library name* core* emit))
+        (let-values (((name* code*) (expand-libraries filename (list form))))
+          (analyse-library name* code* emit))
         ;; Check what is after the closing brace of the library form.
         (let lp ((i 0))
           (let ((token (get-token reader)))
@@ -104,7 +109,7 @@
   (define (lint-r6rs-program filename port emit)
     (let* ((forms (read-port port filename))
            (stripped (map annotation-stripped forms)))
-      (let-values (((name* core*)
+      (let-values (((name* code*)
                     (cond ((or (null? stripped)
                                (not (pair? (car stripped)))
                                (not (eq? (caar stripped) 'import)))
@@ -113,7 +118,7 @@
                            (expand-top-level `((import (rnrs)) ,@forms)))
                           (else
                            (expand-top-level forms)))))
-        (analyse-program name* core* emit))))
+        (analyse-program name* code* emit))))
 
   (define (read-port p filename)
     (let ((reader (make-reader p filename)))

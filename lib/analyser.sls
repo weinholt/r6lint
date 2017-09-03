@@ -25,7 +25,8 @@
 
 (library (r6lint lib analyser)
   (export analyse-program analyse-library
-          code->records)
+          code->records
+          expr-emit)
   (import (r6lint lib expressions)
           (r6lint psyntax builders)
           (r6lint psyntax internal)
@@ -62,8 +63,9 @@
             ;; Only emit warnings for the last code. That's the file
             ;; being checked.
             (when (null? (cdr code*))
-              (check-unused-variables rec library? emit)
-              (check-misused-equality rec emit)))
+              (let ((rec (pass-recover-let rec emit)))
+                (check-unused-variables rec library? emit)
+                (check-misused-equality rec emit))))
           (lp (cdr name*) (cdr code*))))))
 
   (define (expr-emit emit expr level id message)
@@ -76,6 +78,98 @@
                      level id message))))
           (else
            (emit #f 1 0 level id message))))
+
+;;; Recover let expressions
+
+  (define (pass-recover-let code emit)
+    (define (formals-match? proccase operand*)
+      ;; Do the formals match the operands for this case-lambda case?
+      (let ((len-formals (length (proccase-formals proccase)))
+            (len-operand* (length operand*)))
+        (if (proccase-proper? proccase)
+            (= len-operand* len-formals)
+            (>= len-operand* (- len-formals 1)))))
+    (define (recover-bind location formals operand* body proper?)
+      (let ((operand^*
+             (if proper?
+                 operand*
+                 (let lp ((formals formals) (operand* operand*))
+                   (if (null? (cdr formals))
+                       (list (make-funcall location
+                                           (make-primref location 'list)
+                                           operand*
+                                           #f))
+                       (cons (car operand*)
+                             (lp (cdr formals) (cdr operand*))))))))
+        (make-bind location formals operand^* body)))
+    (define (pass x)
+      (cond ((rec*? x)
+             (make-rec* (expr-location x)
+                        (rec*-lhs* x)
+                        (map pass (rec*-rhs* x))
+                        (pass (rec*-body x))))
+            ((rec? x)
+             (make-rec (expr-location x)
+                       (rec-lhs* x)
+                       (map pass (rec-rhs* x))
+                       (pass (rec-body x))))
+            ((proc? x)
+             (make-proc (expr-location x)
+                        (map (lambda (x)
+                               (make-proccase (expr-location x)
+                                              (proccase-formals x)
+                                              (proccase-proper? x)
+                                              (pass (proccase-body x))))
+                             (proc-case* x))
+                        (proc-name x)))
+            ((seq? x)
+             (make-seq (expr-location x)
+                       (pass (seq-e0 x))
+                       (pass (seq-e1 x))))
+            ((mutate? x)
+             (make-mutate (expr-location x)
+                          (mutate-name x)
+                          (pass (mutate-expr x))))
+            ((test? x)
+             (make-test (expr-location x)
+                        (pass (test-expr x))
+                        (pass (test-then x))
+                        (pass (test-else x))))
+            ((and (funcall? x) (proc? (funcall-operator x)))
+             (let ((op (funcall-operator x))
+                   (operand* (funcall-operand* x)))
+               (cond ((find (lambda (c) (formals-match? c operand*))
+                            (proc-case* op))
+                      => (lambda (c)
+                           (for-each (lambda (c^)
+                                       (unless (eq? c^ c)
+                                         (expr-emit emit c^ 'refactor
+                                                    'unreachable-code "Unreachable code")))
+                                     (proc-case* op))
+                           (recover-bind (expr-location x)
+                                         (proccase-formals c)
+                                         (map pass operand*)
+                                         (pass (proccase-body c))
+                                         (proccase-proper? c))))
+                     (else
+                      (expr-emit emit x 'error 'wrong-arguments "Wrong arguments to procedure")
+                      (let ((loc (expr-location x)))
+                        (make-funcall loc (make-primref loc 'assertion-violation)
+                                      (list (make-const loc 'apply)
+                                            (make-const loc "Wrong argument count")
+                                            (make-const loc (records->core x)))
+                                      (funcall-tail? x)))))))
+            ((funcall? x)
+             (make-funcall (expr-location x)
+                           (pass (funcall-operator x))
+                           (map pass (funcall-operand* x))
+                           (funcall-tail? x)))
+            ((const? x) x)
+            ((ref? x) x)
+            ((primref? x) x)
+            (else
+             (error 'pass-recover-let "Unknown type" x))))
+    (pass code))
 
 ;;; Check for unused variables
 
@@ -103,6 +197,10 @@
         ((seq? code)
          (pass0 (seq-e0 code))
          (pass0 (seq-e1 code)))
+        ((bind? code)
+         (for-each pass0 (bind-lhs* code))
+         (for-each pass0 (bind-rhs* code))
+         (pass0 (bind-body code)))
         ((rec? code)
          (for-each pass0 (rec-lhs* code))
          (for-each pass0 (rec-rhs* code))
@@ -154,6 +252,10 @@
         ((seq? code)
          (pass1 (seq-e0 code))
          (pass1 (seq-e1 code)))
+        ((bind? code)
+         (for-each pass1 (bind-lhs* code))
+         (for-each pass1 (bind-rhs* code))
+         (pass1 (bind-body code)))
         ((rec? code)
          (for-each pass1 (rec-lhs* code))
          (for-each pass1 (rec-rhs* code))
@@ -181,11 +283,6 @@
 
 ;;; Check for misused equality predicates
 
-  ;; This checks for calls to eq?/eqv? with arguments that aren't
-  ;; usually comparable with those predicates. This is a very naïve
-  ;; analysis, of course, doesn't find anything but the obvious bad
-  ;; calls. You gotta start somewhere.
-
   (define-syntax define-walker
     (lambda (x)
       (syntax-case x ()
@@ -211,6 +308,10 @@
                ((seq? code)
                 (pass (seq-e0 code))
                 (pass (seq-e1 code)))
+               ((bind? code)
+                (for-each pass (bind-lhs* code))
+                (for-each pass (bind-rhs* code))
+                (pass (bind-body code)))
                ((rec? code)
                 (for-each pass (rec-lhs* code))
                 (for-each pass (rec-rhs* code))
@@ -230,6 +331,11 @@
                 (for-each pass (funcall-operand* code)))
                (else
                 (error 'pass "Unknown expression" code))))))))
+
+  ;; This checks for calls to eq?/eqv? with arguments that aren't
+  ;; usually comparable with those predicates. This is a very naïve
+  ;; analysis, of course, doesn't find anything but the obvious bad
+  ;; calls. You gotta start somewhere.
 
   (define (check-misused-equality code emit)
     (define (arg-not-comparable-with-eqv? arg)
