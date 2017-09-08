@@ -36,12 +36,15 @@
           ref? make-ref ref-name
           mutate? make-mutate mutate-name mutate-expr
           bind? make-bind bind-lhs* bind-rhs* bind-body
+          fix? make-fix fix-lhs* fix-rhs* fix-body
           rec? make-rec rec-lhs* rec-rhs* rec-body
           rec*? make-rec* rec*-lhs* rec*-rhs* rec*-body
           proc? make-proc proc-case* proc-name
           proccase? make-proccase proccase-formals proccase-proper? proccase-body
-          funcall? make-funcall funcall-operator funcall-operand* funcall-tail?)
+          funcall? make-funcall funcall-operator funcall-operand* funcall-tail?
+          make-void)
   (import (r6lint psyntax builders)
+          (r6lint psyntax gensym)
           (rnrs (6)))
 
   (define-record-type expr
@@ -88,6 +91,11 @@
     (fields lhs* rhs* body)
     (nongenerative) (sealed #t))
 
+  (define-record-type fix               ;fix (from fixing letrec)
+    (parent expr)
+    (fields lhs* rhs* body)
+    (nongenerative) (sealed #t))
+
   (define-record-type rec               ;letrec
     (parent expr)
     (fields lhs* rhs* body)
@@ -113,6 +121,9 @@
     (fields operator operand* tail?)
     (nongenerative) (sealed #t))
 
+  (define (make-void location)
+    (make-funcall location (make-primref location 'void) '() #f))
+
 ;;; Convert core code to records
 
   (define (maybe-expr-location expr)
@@ -137,11 +148,25 @@
        (error 'code-source "Unknown code" code))))
 
   (define (records->core x)
+    (define names (make-eq-hashtable))
+    (define name-counters (make-hashtable string-hash string=?))
+    (define (get-name symbol)
+      (assert (symbol? symbol))
+      (or (hashtable-ref names symbol #f)
+          (let* ((name (gensym-name symbol))
+                 (count (hashtable-ref name-counters name 0)))
+            (hashtable-set! name-counters name (+ count 1))
+            (let ((simple-symbol (if (zero? count)
+                                     (string->symbol name)
+                                     (string->symbol
+                                      (string-append name "_" (number->string count))))))
+              (hashtable-set! names symbol simple-symbol)
+              simple-symbol))))
     (define (f x)
       (cond ((const? x)
              (const-value x))
             ((variable? x)
-             (variable-name x))
+             (get-name (variable-name x)))
             ((primref? x)
              (primref-name x))
             ((ref? x)
@@ -177,6 +202,10 @@
             ((rec*? x)
              `(letrec* ,(map list (map f (rec*-lhs* x)) (map f (rec*-rhs* x)))
                 ,(f (rec*-body x))))
+            ((fix? x)
+             ;; Can be replaced with letrec.
+             `(fix ,(map list (map f (fix-lhs* x)) (map f (fix-rhs* x)))
+                ,(f (fix-body x))))
             (else
              (error 'records->core "Unknown expression" x))))
     (f x))
@@ -239,7 +268,7 @@
                     (pass (expr-conditional-test-exp code) name #f)
                     (pass (expr-conditional-then-exp code) name tail?)
                     (if (expr-conditional-one-armed? code)
-                        (make-primref (expr-conditional-source code) 'void)
+                        (make-void (expr-conditional-source code))
                         (pass (expr-conditional-else-exp code) name tail?))))
         ((expr-primref? code)
          (make-primref (expr-primref-source code) (expr-primref-name code)))

@@ -25,4 +25,5 @@ bin/r6lint -c r6lintrc-test psyntax/internal.sls
 bin/r6lint -c r6lintrc-test psyntax/library-manager.sls
 bin/r6lint -c r6lintrc-test tests/test-reader.sps
 bin/r6lint -c r6lintrc-test tests/test-linter.sps
+bin/r6lint -c r6lintrc-test tests/test-letrec.sps
 echo All tests passed
