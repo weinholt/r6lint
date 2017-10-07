@@ -74,7 +74,14 @@
   (define-record-type variable          ;variable
     (parent expr)
     (fields name export-name (mutable referenced?) (mutable mutated?))
-    (nongenerative) (sealed #t))
+    (nongenerative) (sealed #t)
+    (protocol
+     (lambda (p)
+       (case-lambda
+         ((location name export-name)
+          ((p location) name export-name #f #f))
+         ((location name)
+          ((p location) name #f #f #f))))))
 
   (define-record-type ref               ;variable reference
     (parent expr)
@@ -214,7 +221,7 @@
     (define vars (make-eq-hashtable))
     (define (make-var location name export-name)
       (or (hashtable-ref vars name #f)
-          (let ((ret (make-variable location name export-name #f #f)))
+          (let ((ret (make-variable location name export-name)))
             (hashtable-set! vars name ret)
             ret)))
     (define (formals->list x)
