@@ -1,7 +1,7 @@
 ;;; Copyright (c) 2006, 2007  Abdulaziz Ghuloum and Kent Dybvig
 ;;; Copyright (c) 2008, 2009  Abdulaziz Ghuloum
 ;;; Copyright (c) 2007-2015  Llewellyn Pritchard
-;;; Copyright © 2017 Göran Weinholt <goran@weinholt.se>
+;;; Copyright © 2017, 2018 Göran Weinholt <goran@weinholt.se>
 ;;;
 ;;; Permission is hereby granted, free of charge, to any person obtaining a
 ;;; copy of this software and associated documentation files (the "Software"),
@@ -1010,7 +1010,7 @@
         ((_ id val) (id? id)
          (values id (cons 'expr val)))
         ((_ id) (id? id)
-         (values id (cons 'expr (bless '(void))))))))
+         (values id (cons 'expr (bless '(if #f #f))))))))
 
   (define parse-define-syntax
     (lambda (x)
