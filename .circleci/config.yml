@@ -1,0 +1,34 @@
+version: 2
+jobs:
+  "test-chezscheme":
+    docker:
+      - image: akkuscm/akku:latest
+    steps: &test_steps
+      - checkout
+      - run: akku install
+      - run: .akku/env ./run-tests.sh
+  "test-guile": {docker: [{image: "akkuscm/akku:guile"}], steps: *test_steps}
+  "test-ikarus": {docker: [{image: "akkuscm/akku:ikarus"}], steps: *test_steps}
+  "test-ironscheme": {docker: [{image: "akkuscm/akku:ironscheme"}], steps: *test_steps}
+  "test-larceny": {docker: [{image: "akkuscm/akku:larceny"}], steps: *test_steps}
+  "test-loko": {docker: [{image: "akkuscm/akku:loko"}], steps: *test_steps}
+  "test-mosh": {docker: [{image: "akkuscm/akku:vicare"}], steps: *test_steps}
+  "test-racket": {docker: [{image: "akkuscm/akku:racket"}], steps: *test_steps}
+  "test-sagittarius": {docker: [{image: "akkuscm/akku:sagittarius"}], steps: *test_steps}
+  "test-vicare": {docker: [{image: "akkuscm/akku:vicare"}], steps: *test_steps}
+  "test-ypsilon": {docker: [{image: "akkuscm/akku:ypsilon"}], steps: *test_steps}
+workflows:
+  version: 2
+  test:
+    jobs:
+      - "test-chezscheme"
+      - "test-guile"
+      - "test-ikarus"
+      - "test-ironscheme"
+      - "test-larceny"
+      - "test-loko"
+      - "test-mosh"
+      - "test-racket"
+      - "test-sagittarius"
+      - "test-vicare"
+      - "test-ypsilon"

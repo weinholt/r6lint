@@ -1,6 +1,6 @@
 # r6lint
 
-[![Build Status](https://travis-ci.org/weinholt/r6lint.svg?branch=master)](https://travis-ci.org/weinholt/r6lint)
+[![CircleCI](https://circleci.com/gh/weinholt/r6lint.svg?style=svg)](https://circleci.com/gh/weinholt/r6lint)
 
 r6lint is an R6RS syntax and style checker.
 
